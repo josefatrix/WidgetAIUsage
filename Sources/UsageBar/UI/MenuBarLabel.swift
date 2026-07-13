@@ -27,6 +27,8 @@ enum MenuBarLabel {
         }
     }
 
+    static let barWidth: CGFloat = 34
+
     private static func drawBar(_ bar: LimitBar?, in rect: NSRect) {
         let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
                                    xRadius: rect.height / 2 - 0.5, yRadius: rect.height / 2 - 0.5)
@@ -34,39 +36,40 @@ enum MenuBarLabel {
         outline.lineWidth = 1
         outline.stroke()
         guard let bar else { return }
-        let frac = max(0, min(1, bar.percent / 100))
-        let maxWidth = rect.width - 4
-        let fillWidth = max(3, maxWidth * frac)
+        let usable = rect.width - 4
+        let fillWidth = MenuBarMetrics.fillWidth(percent: bar.percent, usableWidth: usable)
+        guard fillWidth > 0 else { return }
         let fillRect = NSRect(x: rect.minX + 2, y: rect.minY + 2, width: fillWidth, height: rect.height - 4)
         nsColor(percent: bar.percent, severity: bar.severity).setFill()
-        NSBezierPath(roundedRect: fillRect, xRadius: (rect.height - 4) / 2, yRadius: (rect.height - 4) / 2).fill()
+        // Small corner radius (not a capsule): keeps width readable at low percents.
+        NSBezierPath(roundedRect: fillRect, xRadius: 1.5, yRadius: 1.5).fill()
     }
 
     static func image(style: MenuBarStyle, selected: LimitBar?, claude: LimitBar?, codex: LimitBar?) -> NSImage {
         switch style {
         case .bar:
-            let size = NSSize(width: 26, height: 10)
+            let size = NSSize(width: barWidth, height: 10)
             return NSImage(size: size, flipped: false) { rect in
                 drawBar(selected, in: rect)
                 return true
             }
         case .percent:
-            let size = NSSize(width: 54, height: 12)
+            let size = NSSize(width: barWidth + 28, height: 12)
             return NSImage(size: size, flipped: false) { _ in
-                drawBar(selected, in: NSRect(x: 0, y: 1, width: 26, height: 10))
+                drawBar(selected, in: NSRect(x: 0, y: 1, width: barWidth, height: 10))
                 let text = selected.map { "\(Int($0.percent.rounded()))%" } ?? "–"
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
                     .foregroundColor: NSColor.labelColor,
                 ]
-                (text as NSString).draw(at: NSPoint(x: 30, y: 0.5), withAttributes: attrs)
+                (text as NSString).draw(at: NSPoint(x: barWidth + 4, y: 0.5), withAttributes: attrs)
                 return true
             }
         case .dual:
-            let size = NSSize(width: 26, height: 12)
+            let size = NSSize(width: barWidth, height: 12)
             return NSImage(size: size, flipped: false) { _ in
-                drawBar(claude, in: NSRect(x: 0, y: 7, width: 26, height: 5))
-                drawBar(codex, in: NSRect(x: 0, y: 0, width: 26, height: 5))
+                drawBar(claude, in: NSRect(x: 0, y: 7, width: barWidth, height: 5))
+                drawBar(codex, in: NSRect(x: 0, y: 0, width: barWidth, height: 5))
                 return true
             }
         }

@@ -3,7 +3,7 @@ import UsageBarCore
 
 final class ClaudeProvider: UsageProvider {
     let id = ProviderID.claude
-    private let fileCache = JSONLCache<[UsageEvent]>()
+    private let fileCache = JSONLCache<[UsageEvent]>(persistKey: "claude-events")
 
     func fetch() async -> Result<ProviderSnapshot, FetchFailure> {
         guard let creds = Self.readKeychainCredentials() else {
@@ -94,6 +94,7 @@ final class ClaudeProvider: UsageProvider {
             if let parsed { events.append(contentsOf: parsed) }
         }
         events = Aggregation.dedupe(events)
+        fileCache.save()
         guard !events.isEmpty else { return nil }
 
         let now = Date()

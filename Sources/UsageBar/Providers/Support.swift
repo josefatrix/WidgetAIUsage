@@ -2,12 +2,13 @@ import Foundation
 import UsageBarCore
 
 enum ProviderID: String, CaseIterable, Identifiable {
-    case codex, claude
+    case codex, claude, gemini
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .codex: return "Codex"
         case .claude: return "Claude"
+        case .gemini: return "Gemini"
         }
     }
 }
@@ -19,10 +20,25 @@ protocol UsageProvider {
     func fetch() async -> Result<ProviderSnapshot, FetchFailure>
 }
 
-/// Per-file parse cache keyed by (path, mtime, size) so polls only re-parse changed files.
-final class JSONLCache<Value> {
-    private struct Entry { let mtime: Date; let size: Int; let value: Value }
+/// Per-file parse cache keyed by (path, mtime, size) so polls only re-parse changed
+/// files. Persisted to ~/Library/Caches/UsageBar/<key>.json so cold starts are instant.
+final class JSONLCache<Value: Codable> {
+    private struct Entry: Codable { let mtime: Date; let size: Int; let value: Value }
     private var cache: [String: Entry] = [:]
+    private let persistURL: URL?
+
+    init(persistKey: String? = nil) {
+        guard let persistKey,
+              let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        else { persistURL = nil; return }
+        let folder = dir.appendingPathComponent("UsageBar", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        persistURL = folder.appendingPathComponent("\(persistKey).json")
+        if let url = persistURL, let data = try? Data(contentsOf: url),
+           let saved = try? JSONDecoder().decode([String: Entry].self, from: data) {
+            cache = saved
+        }
+    }
 
     func value(forFile url: URL, compute: (String) -> Value) -> Value? {
         let path = url.path
@@ -34,6 +50,11 @@ final class JSONLCache<Value> {
         let value = compute(contents)
         cache[path] = Entry(mtime: mtime, size: size, value: value)
         return value
+    }
+
+    func save() {
+        guard let persistURL, let data = try? JSONEncoder().encode(cache) else { return }
+        try? data.write(to: persistURL, options: .atomic)
     }
 }
 

@@ -45,6 +45,11 @@ struct PopoverView: View {
         }
 
         if let snap = state.snapshot {
+            if store.selected == .gemini && snap.limits.isEmpty {
+                Text("Gemini doesn't expose quota limits locally — showing activity only.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
             if !snap.limits.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(snap.limits) { limit in

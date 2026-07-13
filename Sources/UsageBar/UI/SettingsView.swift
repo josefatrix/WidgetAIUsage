@@ -36,6 +36,13 @@ struct SettingsView: View {
                 }
                 .font(.system(size: 12))
 
+                Picker("Menu bar icon", selection: $store.menuBarStyle) {
+                    ForEach(MenuBarStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .font(.system(size: 12))
+
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .font(.system(size: 12))
                     .onChange(of: launchAtLogin) { _, enabled in

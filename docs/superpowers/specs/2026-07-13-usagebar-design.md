@@ -51,7 +51,7 @@ An observable `UsageStore` that:
 
 ### 3. UI
 
-- **Menu bar item:** mini horizontal progress bar for the active provider's session usage.
+- **Menu bar item:** mini horizontal progress bar for the active provider's session usage. The "active provider" is the tab last selected in the popover, persisted across launches (default: Claude).
 - **Popover:** layout mirroring CodexBar's (tabs → header → three bars → cost block → cost-history row → actions). The cost-history row expands a floating panel with the 30-day daily bar chart.
 - Visual polish (spacing, bar transitions, panel animation) follows the `emil-design-eng` skill guidance adapted to SwiftUI.
 

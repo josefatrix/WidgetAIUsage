@@ -11,6 +11,7 @@ public enum ClaudeLimits {
             let kind: String?
             let percent: Double?
             let resets_at: String?
+            let severity: String?
             let scope: Scope?
         }
         let five_hour: Window?
@@ -54,7 +55,8 @@ public enum ClaudeLimits {
                     }
                 default: continue
                 }
-                bars.append(LimitBar(label: label, percent: pct, resetsAt: parseISODate(e.resets_at)))
+                bars.append(LimitBar(label: label, percent: pct,
+                                     resetsAt: parseISODate(e.resets_at), severity: e.severity))
             }
             if !bars.isEmpty { return bars }
         }
@@ -66,5 +68,18 @@ public enum ClaudeLimits {
             bars.append(LimitBar(label: "Weekly", percent: u, resetsAt: parseISODate(s.resets_at)))
         }
         return bars
+    }
+
+    public static func parseExtraUsage(_ data: Data) -> ExtraUsage? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let x = obj["extra_usage"] as? [String: Any] else { return nil }
+        let enabled = x["is_enabled"] as? Bool ?? false
+        let credits = (x["used_credits"] as? NSNumber)?.doubleValue ?? 0
+        guard enabled || credits > 0 else { return nil }
+        let decimals = (x["decimal_places"] as? NSNumber)?.intValue ?? 2
+        let scale = pow(10.0, Double(decimals))
+        let limit = (x["monthly_limit"] as? NSNumber)?.doubleValue ?? 0
+        let utilization = (x["utilization"] as? NSNumber)?.doubleValue ?? 0
+        return ExtraUsage(usedUSD: credits / scale, limitUSD: limit / scale, utilization: utilization)
     }
 }

@@ -15,6 +15,16 @@ func testClaudeCost() {
     expect(ClaudeCost.parseLine("not json") == nil, "garbage skipped")
     let synth = #"{"type":"assistant","timestamp":"2026-07-13T17:43:54.307Z","message":{"model":"<synthetic>","usage":{"input_tokens":1,"output_tokens":1}}}"#
     expect(ClaudeCost.parseLine(synth) == nil, "synthetic skipped")
+
+    // Codable round-trip (persistent cache support)
+    if let encoded = try? JSONEncoder().encode([e]),
+       let decoded = try? JSONDecoder().decode([UsageEvent].self, from: encoded), let d = decoded.first {
+        expectEq(d.model, e.model, "codable model")
+        expectEq(d.costUSD, e.costUSD, "codable cost")
+        expectEq(d.dedupeKey, e.dedupeKey, "codable key")
+    } else {
+        expect(false, "UsageEvent Codable round-trip failed")
+    }
 }
 
 func testAggregation() {

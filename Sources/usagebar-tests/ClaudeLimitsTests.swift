@@ -35,4 +35,22 @@ func testClaudeLimits() {
 
     expectEq(ClaudeLimits.prettyModelName("claude-sonnet-4-6"), "Sonnet", "pretty sonnet")
     expectEq(ClaudeLimits.prettyModelName("claude-opus-4-8"), "Opus", "pretty opus")
+
+    // severity decoded from limits entries
+    expectEq(bars.first?.severity, "normal", "severity decoded")
+}
+
+func testExtraUsage() {
+    let json = """
+    {"limits":[],"extra_usage":{"is_enabled":false,"monthly_limit":1000,"used_credits":1859.0,"utilization":100.0,"currency":"USD","decimal_places":2}}
+    """.data(using: .utf8)!
+    guard let x = ClaudeLimits.parseExtraUsage(json) else { expect(false, "extra usage nil"); return }
+    expect(abs(x.usedUSD - 18.59) < 1e-9, "used \(x.usedUSD)")
+    expect(abs(x.limitUSD - 10.0) < 1e-9, "limit \(x.limitUSD)")
+    expectEq(x.utilization, 100.0, "utilization")
+
+    // absent → nil; enabled-but-unused → nil
+    expect(ClaudeLimits.parseExtraUsage(Data("{}".utf8)) == nil, "absent -> nil")
+    let unused = #"{"extra_usage":{"is_enabled":false,"monthly_limit":1000,"used_credits":0,"utilization":0,"decimal_places":2}}"#
+    expect(ClaudeLimits.parseExtraUsage(Data(unused.utf8)) == nil, "zero+disabled -> nil")
 }

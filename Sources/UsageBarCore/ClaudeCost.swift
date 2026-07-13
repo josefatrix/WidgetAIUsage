@@ -1,6 +1,6 @@
 import Foundation
 
-public struct UsageEvent {
+public struct UsageEvent: Codable {
     public let timestamp: Date
     public let model: String
     public let input: Int, output: Int, cacheWrite: Int, cacheRead: Int

@@ -21,9 +21,14 @@ credential ("security wants to use..."), choose **Always Allow**.
 | Provider | Limits | Cost/tokens |
 |---|---|---|
 | Claude | Anthropic OAuth usage endpoint (token read-only from the `Claude Code-credentials` Keychain item) | `~/.claude/projects/**/*.jsonl` priced per model |
-| Codex | `rate_limits` events in `~/.codex/sessions/**/*.jsonl` | cumulative `total_token_usage` per session, priced at GPT-5 rates |
+| Codex | `rate_limits` events in `~/.codex/sessions/**/*.jsonl` | cumulative `total_token_usage` per session, priced by the session's model |
+| Gemini | not exposed locally (activity chart only) | user messages/day from `~/.gemini/tmp/*/logs.json` |
 
 All access is **read-only**. Costs are estimates computed locally — not a bill.
+
+v1.1: refresh on popover open, live countdowns, threshold notifications (80%/95%),
+API severity colors, extra-usage credits, chart date axis, persistent parse cache
+(`~/Library/Caches/UsageBar/`), menu bar icon styles (bar / bar+% / dual), Gemini tab.
 
 ## Debug
 

@@ -13,9 +13,10 @@ final class ClaudeProvider: UsageProvider {
         let plan = creds.subscriptionType?.capitalized
 
         var limits: [LimitBar] = []
+        var extraUsage: ExtraUsage? = nil
         var limitsError: String? = nil
         do {
-            limits = try await Self.fetchLimits(token: creds.accessToken)
+            (limits, extraUsage) = try await Self.fetchLimits(token: creds.accessToken)
         } catch {
             limitsError = (error as? FetchFailure)?.message ?? error.localizedDescription
         }
@@ -29,7 +30,8 @@ final class ClaudeProvider: UsageProvider {
         }
         let history = historyCache
         return .success(ProviderSnapshot(account: account, plan: plan, limits: limits,
-                                         cost: cost, history: history, fetchedAt: Date()))
+                                         cost: cost, history: history, fetchedAt: Date(),
+                                         extraUsage: extraUsage))
     }
 
     // MARK: keychain / account
@@ -58,7 +60,7 @@ final class ClaudeProvider: UsageProvider {
 
     // MARK: limits endpoint
 
-    static func fetchLimits(token: String) async throws -> [LimitBar] {
+    static func fetchLimits(token: String) async throws -> ([LimitBar], ExtraUsage?) {
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
@@ -71,7 +73,7 @@ final class ClaudeProvider: UsageProvider {
             }
             throw FetchFailure(message: "Limits endpoint returned \(http.statusCode)")
         }
-        return ClaudeLimits.parse(data)
+        return (ClaudeLimits.parse(data), ClaudeLimits.parseExtraUsage(data))
     }
 
     // MARK: local cost scan

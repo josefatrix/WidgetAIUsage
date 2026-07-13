@@ -1,14 +1,22 @@
 import SwiftUI
 import UsageBarCore
 
-struct LimitBarView: View {
-    let limit: LimitBar
-
-    private var barColor: Color {
-        if limit.percent >= 85 { return .red }
-        if limit.percent >= 60 { return .orange }
+/// API severity wins; falls back to percent thresholds when the provider has none.
+func limitColor(percent: Double, severity: String?) -> Color {
+    switch severity {
+    case "warning": return .orange
+    case "exceeded", "critical", "error": return .red
+    case "normal": return .accentColor
+    default:
+        if percent >= 85 { return .red }
+        if percent >= 60 { return .orange }
         return .accentColor
     }
+}
+
+struct LimitBarView: View {
+    let limit: LimitBar
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -19,7 +27,7 @@ struct LimitBarView: View {
                     Capsule()
                         .fill(Color.primary.opacity(0.08))
                     Capsule()
-                        .fill(barColor)
+                        .fill(limitColor(percent: limit.percent, severity: limit.severity))
                         .frame(width: max(4, geo.size.width * min(1, limit.percent / 100)))
                         .animation(.easeOut(duration: 0.25), value: limit.percent)
                 }
@@ -29,7 +37,7 @@ struct LimitBarView: View {
                 Text("\(Int(limit.percent.rounded()))% used")
                 Spacer()
                 if let resets = limit.resetsAt {
-                    Text(Format.resetsIn(resets))
+                    Text(Format.resetsIn(resets, now: now))
                 }
             }
             .font(.system(size: 11))

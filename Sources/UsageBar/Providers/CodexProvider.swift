@@ -1,10 +1,22 @@
 import Foundation
 import UsageBarCore
 
+/// Last cumulative token usage + model of one Codex session file.
+struct CodexSessionData: Codable {
+    let input: Int, cached: Int, output: Int
+    let model: String?
+}
+
 final class CodexProvider: UsageProvider {
     let id = ProviderID.codex
-    // Per session file: last cumulative token usage (input, cached, output).
-    private let usageCache = JSONLCache<[Int]>()
+    private let usageCache = JSONLCache<CodexSessionData?>(persistKey: "codex-usage")
+
+    static func extractModel(from contents: String) -> String? {
+        guard let range = contents.range(of: #""model":"([^"]+)""#, options: .regularExpression) else { return nil }
+        let match = contents[range]  // "model":"gpt-5.1-codex-mini"
+        let parts = match.split(separator: "\"")
+        return parts.count >= 4 ? String(parts[3]) : nil
+    }
 
     func fetch() async -> Result<ProviderSnapshot, FetchFailure> {
         let sessionsRoot = home.appendingPathComponent(".codex/sessions")
@@ -34,26 +46,34 @@ final class CodexProvider: UsageProvider {
             if !limits.isEmpty { break }
         }
 
-        // Cost: last cumulative total_token_usage per session file, priced as gpt-5.
+        // Cost: last cumulative total_token_usage per session file, priced by the
+        // session's actual model (falls back to gpt-5 rates).
         var events: [UsageEvent] = []
         for url in files {
-            let totals = usageCache.value(forFile: url) { contents in
+            let data = usageCache.value(forFile: url) { contents -> CodexSessionData? in
+                let model = Self.extractModel(from: contents)
                 for line in contents.split(separator: "\n").reversed() {
                     if let u = Codex.findTotalTokenUsage(inLine: String(line)) {
-                        return [u.input, u.cached, u.output]
+                        return CodexSessionData(input: u.input, cached: u.cached, output: u.output, model: model)
                     }
                 }
-                return []
+                return nil
             }
-            guard let totals, totals.count == 3, let mtime = fileMTime(url) else { continue }
-            let (input, cached, output) = (totals[0], totals[1], totals[2])
-            let uncached = max(0, input - cached)
-            let cost = Pricing.costUSD(model: "gpt-5", input: uncached, output: output,
-                                       cacheWrite: 0, cacheRead: cached)
-            events.append(UsageEvent(timestamp: mtime, model: "gpt-5",
-                                     input: input, output: output, cacheWrite: 0, cacheRead: cached,
+            guard let session = data ?? nil, let mtime = fileMTime(url) else { continue }
+            let model = session.model ?? "gpt-5"
+            let uncached = max(0, session.input - session.cached)
+            var cost = Pricing.costUSD(model: model, input: uncached, output: session.output,
+                                       cacheWrite: 0, cacheRead: session.cached)
+            if cost == 0, session.input + session.output > 0 {
+                cost = Pricing.costUSD(model: "gpt-5", input: uncached, output: session.output,
+                                       cacheWrite: 0, cacheRead: session.cached)
+            }
+            events.append(UsageEvent(timestamp: mtime, model: model,
+                                     input: session.input, output: session.output,
+                                     cacheWrite: 0, cacheRead: session.cached,
                                      dedupeKey: nil, costUSD: cost))
         }
+        usageCache.save()
 
         var cost: CostSummary? = nil
         var history: [DailyCost] = []

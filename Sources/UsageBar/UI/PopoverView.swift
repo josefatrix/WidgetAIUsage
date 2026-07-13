@@ -7,30 +7,35 @@ struct PopoverView: View {
     @State private var showSettings = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("", selection: $store.selected) {
-                ForEach(ProviderID.allCases) { id in
-                    Text(id.displayName).tag(id)
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("", selection: $store.selected) {
+                    ForEach(ProviderID.allCases) { id in
+                        Text(id.displayName).tag(id)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                if showSettings {
+                    SettingsView(isPresented: $showSettings)
+                } else {
+                    providerContent(now: context.date)
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            if showSettings {
-                SettingsView(isPresented: $showSettings)
-            } else {
-                providerContent
-            }
+            .padding(14)
+            .frame(width: 320)
         }
-        .padding(14)
-        .frame(width: 320)
+        .onAppear {
+            Task { await store.refreshAll() }
+        }
     }
 
     @ViewBuilder
-    private var providerContent: some View {
+    private func providerContent(now: Date) -> some View {
         let state = store.selectedState
 
-        header(state)
+        header(state, now: now)
 
         if let error = state.errorMessage {
             Label(error, systemImage: "exclamationmark.triangle")
@@ -40,10 +45,15 @@ struct PopoverView: View {
         }
 
         if let snap = state.snapshot {
+            if store.selected == .gemini && snap.limits.isEmpty {
+                Text("Gemini doesn't expose quota limits locally — showing activity only.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
             if !snap.limits.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(snap.limits) { limit in
-                        LimitBarView(limit: limit)
+                        LimitBarView(limit: limit, now: now)
                     }
                 }
             }
@@ -58,6 +68,11 @@ struct PopoverView: View {
                     Text("Last 30 days: \(Format.usd(cost.last30DaysCostUSD))")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                    if let extra = snap.extraUsage {
+                        Text("Extra usage: \(Format.usd(extra.usedUSD)) of \(Format.usd(extra.limitUSD)) (\(Int(extra.utilization))%)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(extra.utilization >= 100 ? .orange : .secondary)
+                    }
                 }
             }
 
@@ -67,7 +82,7 @@ struct PopoverView: View {
                     withAnimation(.easeOut(duration: 0.2)) { showHistory.toggle() }
                 } label: {
                     HStack {
-                        Text("Cost history (30 days)")
+                        Text(snap.costUnit == .usd ? "Cost history (30 days)" : "Activity (30 days)")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .semibold))
@@ -78,8 +93,7 @@ struct PopoverView: View {
                 .buttonStyle(RowButtonStyle())
 
                 if showHistory {
-                    CostHistoryView(history: snap.history,
-                                    totalLabel: "Total (30d): \(Format.usd(snap.history.reduce(0) { $0 + $1.costUSD }))")
+                    CostHistoryView(history: snap.history, unit: snap.costUnit)
                 }
             }
         } else if case .loading = state {
@@ -137,13 +151,13 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func header(_ state: ProviderState) -> some View {
+    private func header(_ state: ProviderState, now: Date) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(store.selected.displayName)
                     .font(.system(size: 14, weight: .bold))
                 if let snap = state.snapshot {
-                    Text("Updated \(Format.relativeAge(snap.fetchedAt))")
+                    Text("Updated \(Format.relativeAge(snap.fetchedAt, now: now))")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }

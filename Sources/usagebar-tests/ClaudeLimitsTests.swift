@@ -8,7 +8,7 @@ func testClaudeLimits() {
      "limits":[
       {"kind":"session","group":"session","percent":16,"severity":"normal","resets_at":"2026-07-13T19:29:59.893458+00:00","scope":null,"is_active":false},
       {"kind":"weekly_all","group":"weekly","percent":21,"severity":"normal","resets_at":"2026-07-18T09:59:59.893487+00:00","scope":null,"is_active":false},
-      {"kind":"weekly_scoped","group":"weekly","percent":38,"severity":"normal","resets_at":"2026-07-18T09:59:59.893828+00:00","scope":{"model":{"id":"claude-fable-5"}},"is_active":false}]}
+      {"kind":"weekly_scoped","group":"weekly","percent":38,"severity":"normal","resets_at":"2026-07-18T09:59:59.893828+00:00","scope":{"model":{"id":null,"display_name":"Fable"}},"is_active":false}]}
     """.data(using: .utf8)!
     let bars = ClaudeLimits.parse(json)
     expectEq(bars.count, 3, "bar count")

@@ -4,7 +4,10 @@ public enum ClaudeLimits {
     struct Response: Decodable {
         struct Window: Decodable { let utilization: Double?; let resets_at: String? }
         struct Entry: Decodable {
-            struct Scope: Decodable { struct M: Decodable { let id: String? }; let model: M? }
+            struct Scope: Decodable {
+                struct M: Decodable { let id: String?; let display_name: String? }
+                let model: M?
+            }
             let kind: String?
             let percent: Double?
             let resets_at: String?
@@ -41,7 +44,14 @@ public enum ClaudeLimits {
                 switch e.kind {
                 case "session": label = "Session"
                 case "weekly_all": label = "Weekly"
-                case "weekly_scoped": label = prettyModelName(e.scope?.model?.id ?? "Model")
+                case "weekly_scoped":
+                    if let display = e.scope?.model?.display_name {
+                        label = display
+                    } else if let id = e.scope?.model?.id {
+                        label = prettyModelName(id)
+                    } else {
+                        label = "Model"
+                    }
                 default: continue
                 }
                 bars.append(LimitBar(label: label, percent: pct, resetsAt: parseISODate(e.resets_at)))

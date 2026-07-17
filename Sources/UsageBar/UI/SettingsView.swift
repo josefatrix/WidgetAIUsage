@@ -11,7 +11,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Button {
-                    withAnimation(.easeOut(duration: 0.15)) { isPresented = false }
+                    withAnimation(PopoverView.uiSpring) { isPresented = false }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))

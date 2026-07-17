@@ -33,20 +33,33 @@ struct CostHistoryView: View {
             if let d = focused {
                 Text("\(Format.dayLabel(d.day)): \(value(d))")
                     .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            HStack(alignment: .bottom, spacing: 2) {
-                ForEach(Array(history.enumerated()), id: \.offset) { index, day in
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(Color.orange.opacity(hoverIndex == index ? 1 : 0.75))
-                        .frame(height: max(2, 70 * day.costUSD / maxCost))
-                        .frame(maxWidth: .infinity, alignment: .bottom)
-                        .onHover { inside in
-                            hoverIndex = inside ? index : (hoverIndex == index ? nil : hoverIndex)
-                        }
+            GeometryReader { geo in
+                HStack(alignment: .bottom, spacing: 2) {
+                    ForEach(Array(history.enumerated()), id: \.offset) { index, day in
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.orange.opacity(barOpacity(index)))
+                            .frame(height: max(2, 70 * day.costUSD / maxCost))
+                            .frame(maxWidth: .infinity, alignment: .bottom)
+                    }
+                }
+                .frame(height: 74, alignment: .bottom)
+                .contentShape(Rectangle())
+                // Continuous 1:1 hover tracking across the whole chart — no dead
+                // gaps between bars, feedback follows the pointer the entire way.
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let p):
+                        let step = geo.size.width / CGFloat(max(1, history.count))
+                        hoverIndex = min(history.count - 1, max(0, Int(p.x / max(step, 1))))
+                    case .ended:
+                        hoverIndex = nil
+                    }
                 }
             }
-            .frame(height: 74, alignment: .bottom)
+            .frame(height: 74)
             if let first = history.first?.day, let last = history.last?.day {
                 HStack {
                     Text(Format.dayLabel(first))
@@ -58,9 +71,14 @@ struct CostHistoryView: View {
             }
             Text(totalLabel)
                 .font(.system(size: 11))
+                .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
         .padding(.top, 2)
-        .transition(.opacity)
+    }
+
+    private func barOpacity(_ index: Int) -> Double {
+        guard let hoverIndex else { return 0.8 }
+        return hoverIndex == index ? 1 : 0.45
     }
 }

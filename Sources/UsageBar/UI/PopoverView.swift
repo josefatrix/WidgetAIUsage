@@ -69,36 +69,32 @@ struct PopoverView: View {
             }
 
             if let cost = snap.cost {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Cost (est.)")
-                        .font(.system(size: 12, weight: .semibold))
-                    Group {
-                        Text("Session: \(Format.usd(cost.sessionCostUSD)) · \(Format.tokens(cost.sessionTokens))")
-                            .foregroundStyle(.secondary)
-                        Text("Last 30 days: \(Format.usd(cost.last30DaysCostUSD))")
-                            .foregroundStyle(.secondary)
-                        if let extra = snap.extraUsage {
-                            Text("Extra usage: \(Format.usd(extra.usedUSD)) of \(Format.usd(extra.limitUSD)) (\(Int(extra.utilization))%)")
-                                .foregroundStyle(extra.utilization >= 100 ? .orange : .secondary)
-                        }
-                        if !snap.modelBreakdown.isEmpty {
-                            Text("By model: " + snap.modelBreakdown.prefix(3)
-                                .map { "\(Format.shortModel($0.model)) \(Format.usd($0.costUSD))" }
-                                .joined(separator: " · "))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        if !snap.projectBreakdown.isEmpty {
-                            Text("By project: " + snap.projectBreakdown.prefix(3)
-                                .map { "\($0.project) \(Format.usd($0.costUSD))" }
-                                .joined(separator: " · "))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        statTile(label: "This session",
+                                 value: Format.usd(cost.sessionCostUSD),
+                                 sub: Format.tokens(cost.sessionTokens))
+                        statTile(label: "Last 30 days",
+                                 value: Format.usd(cost.last30DaysCostUSD),
+                                 sub: "estimated")
                     }
-                    .font(.system(size: 11))
-                    .monospacedDigit()
+                    if let extra = snap.extraUsage {
+                        breakdownRow(label: "Extra",
+                                     value: "\(Format.usd(extra.usedUSD)) of \(Format.usd(extra.limitUSD)) (\(Int(extra.utilization))%)",
+                                     tint: extra.utilization >= 100 ? .orange : .secondary)
+                    }
+                    if !snap.modelBreakdown.isEmpty {
+                        breakdownRow(label: "Models",
+                                     value: snap.modelBreakdown.prefix(3)
+                                        .map { "\(Format.shortModel($0.model)) \(Format.usdShort($0.costUSD))" }
+                                        .joined(separator: " · "))
+                    }
+                    if !snap.projectBreakdown.isEmpty {
+                        breakdownRow(label: "Projects",
+                                     value: snap.projectBreakdown.prefix(3)
+                                        .map { "\($0.project) \(Format.usdShort($0.costUSD))" }
+                                        .joined(separator: " · "))
+                    }
                 }
             }
 
@@ -177,6 +173,47 @@ struct PopoverView: View {
         }
     }
 
+    /// Headline number with a small label above and a caption below — gives the
+    /// two key figures visual weight so the eye lands on them before the detail.
+    private func statTile(label: String, value: String, sub: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .medium))
+                .tracking(0.4)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.system(size: 15, weight: .semibold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if let sub {
+                Text(sub)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))
+    }
+
+    /// Label column + a single truncating value line — keeps breakdowns to one
+    /// tidy row each instead of a wall of same-weight text.
+    private func breakdownRow(label: String, value: String, tint: Color = .secondary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .frame(width: 52, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
     @ViewBuilder
     private func header(_ state: ProviderState, now: Date) -> some View {
         HStack(alignment: .firstTextBaseline) {
@@ -231,19 +268,21 @@ struct ProviderSelector: View {
                 HStack(spacing: 4) {
                     Text(id.displayName)
                         .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(bar == nil && !selected ? .secondary : .primary)
                     Spacer(minLength: 0)
-                    Text(bar.map { "\(Int($0.percent.rounded()))%" } ?? "—")
-                        .font(.system(size: 10, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                    trailingBadge(id: id, bar: bar)
                 }
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color.primary.opacity(0.1))
-                        if let bar {
-                            Capsule()
-                                .fill(limitColor(percent: bar.percent, severity: bar.severity))
-                                .frame(width: max(3, geo.size.width * min(1, bar.percent / 100)))
+                        // Gemini has no session limit — no track (an empty track
+                        // would read as 0%/broken); everyone else shows a meter.
+                        if id != .gemini {
+                            Capsule().fill(Color.primary.opacity(0.1))
+                            if let bar {
+                                Capsule()
+                                    .fill(limitColor(percent: bar.percent, severity: bar.severity))
+                                    .frame(width: max(3, geo.size.width * min(1, bar.percent / 100)))
+                            }
                         }
                     }
                 }
@@ -262,6 +301,22 @@ struct ProviderSelector: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func trailingBadge(id: ProviderID, bar: LimitBar?) -> some View {
+        if let bar {
+            Text("\(Int(bar.percent.rounded()))%")
+                .font(.system(size: 10, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        } else if id == .gemini {
+            // No quota to meter — signal "activity only" instead of a fake number.
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+        }
+        // else: loading/unavailable — show nothing rather than "—"
     }
 }
 

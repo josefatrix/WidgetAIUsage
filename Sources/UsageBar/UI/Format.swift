@@ -27,7 +27,29 @@ enum Format {
     }
 
     static func usd(_ v: Double) -> String {
-        String(format: "$%.2f", v)
+        let neg = v < 0
+        let cents = (abs(v) * 100).rounded()
+        let whole = Int(cents / 100)
+        let frac = Int(cents.truncatingRemainder(dividingBy: 100))
+        return "\(neg ? "-" : "")$\(grouped(whole)).\(String(format: "%02d", frac))"
+    }
+
+    /// Abbreviated dollars for dense breakdown rows: "$2.8k", "$444", "$1.63".
+    static func usdShort(_ v: Double) -> String {
+        if v >= 1000 { return String(format: "$%.1fk", v / 1000) }
+        if v >= 100 { return String(format: "$%.0f", v) }
+        return String(format: "$%.2f", v)
+    }
+
+    private static func grouped(_ n: Int) -> String {
+        let s = String(n)
+        guard s.count > 3 else { return s }
+        var out = "", count = 0
+        for ch in s.reversed() {
+            if count > 0 && count % 3 == 0 { out.append(",") }
+            out.append(ch); count += 1
+        }
+        return String(out.reversed())
     }
 
     static func dayLabel(_ date: Date) -> String {

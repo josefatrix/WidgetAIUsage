@@ -23,8 +23,17 @@ final class ClaudeProvider: UsageProvider {
         var limitsError: String? = nil
         do {
             (limits, extraUsage) = try await Self.fetchLimits(token: creds.accessToken)
+            lastLimits = limits
+            lastExtra = extraUsage
         } catch {
             limitsError = (error as? FetchFailure)?.message ?? error.localizedDescription
+            // Transient failure (e.g. rate limit): keep the last good bars visible
+            // rather than blanking them. Cost still refreshes below.
+            if !lastLimits.isEmpty {
+                limits = lastLimits
+                extraUsage = lastExtra
+                limitsError = nil
+            }
         }
 
         let sessionReset = limits.first { $0.label == "Session" }?.resetsAt
@@ -88,6 +97,8 @@ final class ClaudeProvider: UsageProvider {
     private var historyCache: [DailyCost] = []
     private var modelBreakdownCache: [ModelCost] = []
     private var projectBreakdownCache: [ProjectCost] = []
+    private var lastLimits: [LimitBar] = []
+    private var lastExtra: ExtraUsage? = nil
 
     private func scanCost(sessionResetsAt: Date?) -> CostSummary? {
         let root = home.appendingPathComponent(".claude/projects")

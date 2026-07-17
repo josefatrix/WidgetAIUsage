@@ -57,6 +57,15 @@ public enum Codex {
         rateLimitsDict(inLine: line)?["plan_type"] as? String
     }
 
+    /// First `"model":"…"` value in a session file (its primary model).
+    public static func extractModel(from contents: String) -> String? {
+        guard let r = contents.range(of: "\"model\":\"") else { return nil }
+        let rest = contents[r.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        let value = String(rest[..<end])
+        return value.isEmpty ? nil : value
+    }
+
     public static func findTotalTokenUsage(inLine line: String) -> (input: Int, cached: Int, output: Int)? {
         guard line.contains("total_token_usage"), let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data),

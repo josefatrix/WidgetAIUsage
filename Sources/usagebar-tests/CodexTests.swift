@@ -29,4 +29,9 @@ func testCodex() {
     expectEq(u.input, 7766351, "cx input")
     expectEq(u.cached, 7265280, "cx cached")
     expectEq(u.output, 20770, "cx output")
+
+    // model extraction (regression: split-count bug returned nil for real files)
+    expectEq(Codex.extractModel(from: #"{"type":"session_meta","model":"gpt-5.1-codex-mini"}"#),
+             "gpt-5.1-codex-mini", "extract codex model")
+    expect(Codex.extractModel(from: #"{"no":"model here"}"#) == nil, "no model -> nil")
 }

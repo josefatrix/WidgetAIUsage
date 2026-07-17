@@ -1,4 +1,5 @@
 import SwiftUI
+import UsageBarCore
 
 @main
 struct UsageBarApp: App {
@@ -23,6 +24,21 @@ struct UsageBarApp: App {
                             cost += String(format: " · extra $%.2f/$%.2f", x.usedUSD, x.limitUSD)
                         }
                         print("\(p.id.rawValue): \(s.account ?? "?") [\(s.plan ?? "?")] — \(bars) — \(cost)")
+                        let now = Date()
+                        for b in s.limits {
+                            if let resets = b.resetsAt, let w = b.windowMinutes,
+                               let f = UsageBarCore.Projection.forecast(percent: b.percent, resetsAt: resets, windowMinutes: w, now: now),
+                               f.willHitBeforeReset {
+                                let s = max(0, Int(f.hitDate.timeIntervalSince(now)))
+                                print("    ⚠︎ \(b.label): on pace to hit limit in \(s/3600)h \((s%3600)/60)m")
+                            }
+                        }
+                        if !s.modelBreakdown.isEmpty {
+                            print("    by model: " + s.modelBreakdown.prefix(4).map { String(format: "%@ $%.2f", $0.model, $0.costUSD) }.joined(separator: ", "))
+                        }
+                        if !s.projectBreakdown.isEmpty {
+                            print("    by project: " + s.projectBreakdown.map { String(format: "%@ $%.2f", $0.project, $0.costUSD) }.joined(separator: ", "))
+                        }
                     case .failure(let e):
                         print("\(p.id.rawValue): FAILED — \(e.message)")
                     }

@@ -46,7 +46,7 @@ public enum Codex {
             let label = (minutes ?? 0) <= 300 ? "Session" : "Weekly"
             var resets: Date? = nil
             if let epoch = (w["resets_at"] as? NSNumber)?.doubleValue { resets = Date(timeIntervalSince1970: epoch) }
-            bars.append(LimitBar(label: label, percent: pct, resetsAt: resets))
+            bars.append(LimitBar(label: label, percent: pct, resetsAt: resets, windowMinutes: minutes))
         }
         guard !bars.isEmpty else { return nil }
         bars.sort { ($0.label == "Session" ? 0 : 1) < ($1.label == "Session" ? 0 : 1) }

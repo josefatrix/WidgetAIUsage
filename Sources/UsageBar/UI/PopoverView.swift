@@ -6,6 +6,8 @@ struct PopoverView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showHistory = false
     @State private var showSettings = false
+    @State private var showModels = false
+    @State private var showProjects = false
 
     /// Critically damped spring — Apple's default UI motion (damping 1.0).
     static let uiSpring = Animation.spring(duration: 0.3, bounce: 0)
@@ -84,16 +86,16 @@ struct PopoverView: View {
                                      tint: extra.utilization >= 100 ? .orange : .secondary)
                     }
                     if !snap.modelBreakdown.isEmpty {
-                        breakdownRow(label: "Models",
-                                     value: snap.modelBreakdown.prefix(3)
-                                        .map { "\(Format.shortModel($0.model)) \(Format.usdShort($0.costUSD))" }
-                                        .joined(separator: " · "))
+                        BreakdownDisclosure(
+                            label: "Models",
+                            items: snap.modelBreakdown.map { (Format.shortModel($0.model), $0.costUSD) },
+                            expanded: $showModels)
                     }
                     if !snap.projectBreakdown.isEmpty {
-                        breakdownRow(label: "Projects",
-                                     value: snap.projectBreakdown.prefix(3)
-                                        .map { "\($0.project) \(Format.usdShort($0.costUSD))" }
-                                        .joined(separator: " · "))
+                        BreakdownDisclosure(
+                            label: "Projects",
+                            items: snap.projectBreakdown.map { ($0.project, $0.costUSD) },
+                            expanded: $showProjects)
                     }
                 }
             }
@@ -238,6 +240,69 @@ struct PopoverView: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+}
+
+/// Compact one-line summary (label + top names + chevron) that expands into a
+/// full aligned list on tap — progressive disclosure keeps the default popover
+/// short while making every value fully readable on demand.
+struct BreakdownDisclosure: View {
+    let label: String
+    let items: [(name: String, cost: Double)]
+    @Binding var expanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var summary: String {
+        items.prefix(3).map(\.name).joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(PopoverView.uiSpring) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(label)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 52, alignment: .leading)
+                    Text(summary)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                VStack(spacing: 3) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        HStack(spacing: 8) {
+                            Text(item.name)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 8)
+                            Text(Format.usd(item.cost))
+                                .font(.system(size: 11, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+                .padding(.leading, 60)
+                .padding(.trailing, 2)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
             }
         }
     }

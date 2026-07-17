@@ -145,7 +145,7 @@ final class ClaudeProvider: UsageProvider {
         let session = Aggregation.sessionTotals(events: events, since: sessionStart)
         historyCache = Aggregation.dailyHistory(events: events, now: now, days: 30, calendar: .current)
         modelBreakdownCache = Aggregation.modelBreakdown(events: events, since: cutoff30)
-        projectBreakdownCache = Aggregation.topProjects(projectCosts, limit: 3)
+        projectBreakdownCache = Aggregation.topProjects(projectCosts, limit: 8)
         let total30 = historyCache.reduce(0) { $0 + $1.costUSD }
         return CostSummary(sessionCostUSD: session.cost, sessionTokens: session.tokens,
                            last30DaysCostUSD: total30)

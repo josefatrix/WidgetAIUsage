@@ -22,13 +22,7 @@ struct PopoverView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             VStack(alignment: .leading, spacing: 12) {
-                Picker("", selection: $store.selected) {
-                    ForEach(ProviderID.allCases) { id in
-                        Text(id.displayName).tag(id)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                ProviderSelector()
 
                 if showSettings {
                     SettingsView(isPresented: $showSettings)
@@ -86,6 +80,21 @@ struct PopoverView: View {
                         if let extra = snap.extraUsage {
                             Text("Extra usage: \(Format.usd(extra.usedUSD)) of \(Format.usd(extra.limitUSD)) (\(Int(extra.utilization))%)")
                                 .foregroundStyle(extra.utilization >= 100 ? .orange : .secondary)
+                        }
+                        if !snap.modelBreakdown.isEmpty {
+                            Text("By model: " + snap.modelBreakdown.prefix(3)
+                                .map { "\(Format.shortModel($0.model)) \(Format.usd($0.costUSD))" }
+                                .joined(separator: " · "))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        if !snap.projectBreakdown.isEmpty {
+                            Text("By project: " + snap.projectBreakdown.prefix(3)
+                                .map { "\($0.project) \(Format.usd($0.costUSD))" }
+                                .joined(separator: " · "))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
                     .font(.system(size: 11))
@@ -194,6 +203,65 @@ struct PopoverView: View {
                 }
             }
         }
+    }
+}
+
+/// Comparison selector: all three providers' session bars at once; tapping one
+/// selects it. Doubles as navigation and an at-a-glance comparison (one control
+/// that both compares and selects — clear mapping, direct manipulation).
+struct ProviderSelector: View {
+    @EnvironmentObject var store: UsageStore
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(ProviderID.allCases) { id in
+                chip(id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chip(_ id: ProviderID) -> some View {
+        let bar = store.sessionBar(for: id)
+        let selected = store.selected == id
+        Button {
+            withAnimation(PopoverView.uiSpring) { store.selected = id }
+        } label: {
+            VStack(spacing: 4) {
+                HStack(spacing: 4) {
+                    Text(id.displayName)
+                        .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                    Spacer(minLength: 0)
+                    Text(bar.map { "\(Int($0.percent.rounded()))%" } ?? "—")
+                        .font(.system(size: 10, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.1))
+                        if let bar {
+                            Capsule()
+                                .fill(limitColor(percent: bar.percent, severity: bar.severity))
+                                .frame(width: max(3, geo.size.width * min(1, bar.percent / 100)))
+                        }
+                    }
+                }
+                .frame(height: 4)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color.primary.opacity(selected ? 0.09 : 0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(selected ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

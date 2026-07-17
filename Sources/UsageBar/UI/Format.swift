@@ -1,4 +1,5 @@
 import Foundation
+import UsageBarCore
 
 enum Format {
     static func relativeAge(_ date: Date, now: Date = Date()) -> String {
@@ -33,5 +34,23 @@ enum Format {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
         return f.string(from: date)
+    }
+
+    /// Bare "1d 8h" / "2h 5m" / "12m" — no "Resets in" prefix.
+    static func etaShort(_ date: Date, now: Date = Date()) -> String {
+        let s = max(0, Int(date.timeIntervalSince(now)))
+        let d = s / 86_400, h = (s % 86_400) / 3600, m = (s % 3600) / 60
+        if d > 0 { return "\(d)d \(h)h" }
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
+    }
+
+    /// Compact model name for breakdowns: Claude → "Opus"/"Fable"; gpt/codex trimmed.
+    static func shortModel(_ model: String) -> String {
+        if model.hasPrefix("claude-") { return UsageBarCore.ClaudeLimits.prettyModelName(model) }
+        if model.hasPrefix("gpt-") || model.hasPrefix("codex-") {
+            return model.replacingOccurrences(of: "-codex", with: "")
+        }
+        return model
     }
 }

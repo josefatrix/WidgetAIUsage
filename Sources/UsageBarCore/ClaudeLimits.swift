@@ -42,10 +42,12 @@ public enum ClaudeLimits {
             for e in entries {
                 guard let pct = e.percent else { continue }
                 let label: String
+                let window: Int
                 switch e.kind {
-                case "session": label = "Session"
-                case "weekly_all": label = "Weekly"
+                case "session": label = "Session"; window = 300
+                case "weekly_all": label = "Weekly"; window = 10080
                 case "weekly_scoped":
+                    window = 10080
                     if let display = e.scope?.model?.display_name {
                         label = display
                     } else if let id = e.scope?.model?.id {
@@ -56,16 +58,19 @@ public enum ClaudeLimits {
                 default: continue
                 }
                 bars.append(LimitBar(label: label, percent: pct,
-                                     resetsAt: parseISODate(e.resets_at), severity: e.severity))
+                                     resetsAt: parseISODate(e.resets_at), severity: e.severity,
+                                     windowMinutes: window))
             }
             if !bars.isEmpty { return bars }
         }
         var bars: [LimitBar] = []
         if let f = r.five_hour, let u = f.utilization {
-            bars.append(LimitBar(label: "Session", percent: u, resetsAt: parseISODate(f.resets_at)))
+            bars.append(LimitBar(label: "Session", percent: u, resetsAt: parseISODate(f.resets_at),
+                                 windowMinutes: 300))
         }
         if let s = r.seven_day, let u = s.utilization {
-            bars.append(LimitBar(label: "Weekly", percent: u, resetsAt: parseISODate(s.resets_at)))
+            bars.append(LimitBar(label: "Weekly", percent: u, resetsAt: parseISODate(s.resets_at),
+                                 windowMinutes: 10080))
         }
         return bars
     }

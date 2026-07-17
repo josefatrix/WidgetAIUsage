@@ -6,8 +6,36 @@ public struct LimitBar: Equatable, Identifiable {
     public let percent: Double   // 0...100
     public let resetsAt: Date?
     public let severity: String?  // API-provided: "normal", "warning", ... (nil = use thresholds)
-    public init(label: String, percent: Double, resetsAt: Date?, severity: String? = nil) {
-        self.label = label; self.percent = percent; self.resetsAt = resetsAt; self.severity = severity
+    public let windowMinutes: Int?  // full window length, for burn-rate projection
+    public init(label: String, percent: Double, resetsAt: Date?,
+                severity: String? = nil, windowMinutes: Int? = nil) {
+        self.label = label; self.percent = percent; self.resetsAt = resetsAt
+        self.severity = severity; self.windowMinutes = windowMinutes
+    }
+}
+
+public struct ModelCost: Equatable {
+    public let model: String
+    public let costUSD: Double
+    public let tokens: Int
+    public init(model: String, costUSD: Double, tokens: Int) {
+        self.model = model; self.costUSD = costUSD; self.tokens = tokens
+    }
+}
+
+public struct ProjectCost: Equatable {
+    public let project: String
+    public let costUSD: Double
+    public init(project: String, costUSD: Double) {
+        self.project = project; self.costUSD = costUSD
+    }
+}
+
+public struct Forecast: Equatable {
+    public let hitDate: Date
+    public let willHitBeforeReset: Bool
+    public init(hitDate: Date, willHitBeforeReset: Bool) {
+        self.hitDate = hitDate; self.willHitBeforeReset = willHitBeforeReset
     }
 }
 
@@ -51,11 +79,15 @@ public struct ProviderSnapshot {
     public let fetchedAt: Date
     public let extraUsage: ExtraUsage?
     public let costUnit: CostUnit
+    public let modelBreakdown: [ModelCost]
+    public let projectBreakdown: [ProjectCost]
     public init(account: String?, plan: String?, limits: [LimitBar],
                 cost: CostSummary?, history: [DailyCost], fetchedAt: Date,
-                extraUsage: ExtraUsage? = nil, costUnit: CostUnit = .usd) {
+                extraUsage: ExtraUsage? = nil, costUnit: CostUnit = .usd,
+                modelBreakdown: [ModelCost] = [], projectBreakdown: [ProjectCost] = []) {
         self.account = account; self.plan = plan; self.limits = limits
         self.cost = cost; self.history = history; self.fetchedAt = fetchedAt
         self.extraUsage = extraUsage; self.costUnit = costUnit
+        self.modelBreakdown = modelBreakdown; self.projectBreakdown = projectBreakdown
     }
 }

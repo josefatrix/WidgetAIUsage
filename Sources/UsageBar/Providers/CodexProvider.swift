@@ -11,13 +11,6 @@ final class CodexProvider: UsageProvider {
     let id = ProviderID.codex
     private let usageCache = JSONLCache<CodexSessionData?>(persistKey: "codex-usage")
 
-    static func extractModel(from contents: String) -> String? {
-        guard let range = contents.range(of: #""model":"([^"]+)""#, options: .regularExpression) else { return nil }
-        let match = contents[range]  // "model":"gpt-5.1-codex-mini"
-        let parts = match.split(separator: "\"")
-        return parts.count >= 4 ? String(parts[3]) : nil
-    }
-
     func fetch() async -> Result<ProviderSnapshot, FetchFailure> {
         let sessionsRoot = home.appendingPathComponent(".codex/sessions")
         guard FileManager.default.fileExists(atPath: sessionsRoot.path) else {
@@ -51,7 +44,7 @@ final class CodexProvider: UsageProvider {
         var events: [UsageEvent] = []
         for url in files {
             let data = usageCache.value(forFile: url) { contents -> CodexSessionData? in
-                let model = Self.extractModel(from: contents)
+                let model = Codex.extractModel(from: contents)
                 for line in contents.split(separator: "\n").reversed() {
                     if let u = Codex.findTotalTokenUsage(inLine: String(line)) {
                         return CodexSessionData(input: u.input, cached: u.cached, output: u.output, model: model)
@@ -77,12 +70,15 @@ final class CodexProvider: UsageProvider {
 
         var cost: CostSummary? = nil
         var history: [DailyCost] = []
+        var modelBreakdown: [ModelCost] = []
         if !events.isEmpty {
             let now = Date()
+            let cutoff30 = now.addingTimeInterval(-30 * 24 * 3600)
             let sessionReset = limits.first { $0.label == "Session" }?.resetsAt
             let sessionStart = sessionReset.map { $0.addingTimeInterval(-5 * 3600) } ?? now.addingTimeInterval(-5 * 3600)
             let session = Aggregation.sessionTotals(events: events, since: sessionStart)
             history = Aggregation.dailyHistory(events: events, now: now, days: 30, calendar: .current)
+            modelBreakdown = Aggregation.modelBreakdown(events: events, since: cutoff30)
             let total30 = history.reduce(0) { $0 + $1.costUSD }
             cost = CostSummary(sessionCostUSD: session.cost, sessionTokens: session.tokens,
                                last30DaysCostUSD: total30)
@@ -92,6 +88,7 @@ final class CodexProvider: UsageProvider {
             return .failure(FetchFailure(message: "No recent Codex sessions found"))
         }
         return .success(ProviderSnapshot(account: account.email, plan: plan?.capitalized,
-                                         limits: limits, cost: cost, history: history, fetchedAt: Date()))
+                                         limits: limits, cost: cost, history: history, fetchedAt: Date(),
+                                         modelBreakdown: modelBreakdown))
     }
 }

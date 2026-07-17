@@ -46,7 +46,7 @@ public enum Codex {
             let label = (minutes ?? 0) <= 300 ? "Session" : "Weekly"
             var resets: Date? = nil
             if let epoch = (w["resets_at"] as? NSNumber)?.doubleValue { resets = Date(timeIntervalSince1970: epoch) }
-            bars.append(LimitBar(label: label, percent: pct, resetsAt: resets))
+            bars.append(LimitBar(label: label, percent: pct, resetsAt: resets, windowMinutes: minutes))
         }
         guard !bars.isEmpty else { return nil }
         bars.sort { ($0.label == "Session" ? 0 : 1) < ($1.label == "Session" ? 0 : 1) }
@@ -55,6 +55,15 @@ public enum Codex {
 
     public static func planType(inLine line: String) -> String? {
         rateLimitsDict(inLine: line)?["plan_type"] as? String
+    }
+
+    /// First `"model":"…"` value in a session file (its primary model).
+    public static func extractModel(from contents: String) -> String? {
+        guard let r = contents.range(of: "\"model\":\"") else { return nil }
+        let rest = contents[r.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        let value = String(rest[..<end])
+        return value.isEmpty ? nil : value
     }
 
     public static func findTotalTokenUsage(inLine line: String) -> (input: Int, cached: Int, output: Int)? {

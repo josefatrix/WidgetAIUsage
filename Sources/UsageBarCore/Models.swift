@@ -34,8 +34,11 @@ public struct ProjectCost: Equatable {
 public struct Forecast: Equatable {
     public let hitDate: Date
     public let willHitBeforeReset: Bool
-    public init(hitDate: Date, willHitBeforeReset: Bool) {
-        self.hitDate = hitDate; self.willHitBeforeReset = willHitBeforeReset
+    public let projectedPercentAtReset: Double
+    public init(hitDate: Date, willHitBeforeReset: Bool, projectedPercentAtReset: Double) {
+        self.hitDate = hitDate
+        self.willHitBeforeReset = willHitBeforeReset
+        self.projectedPercentAtReset = projectedPercentAtReset
     }
 }
 

@@ -9,12 +9,15 @@ func testProjection() {
     let f1 = Projection.forecast(percent: 30, resetsAt: now.addingTimeInterval(2 * 3600),
                                  windowMinutes: 300, now: now)!
     expect(!f1.willHitBeforeReset, "30% slow → survives")
+    // 30% at 10%/h, 2h to reset → projected 30 + 20 = 50% by reset
+    expect(abs(f1.projectedPercentAtReset - 50) < 0.5, "projected ~50% (\(f1.projectedPercentAtReset))")
 
     // 85% with 4h elapsed (resets in 1h) → 21.25%/h → ~42m to limit → hits before reset
     let f2 = Projection.forecast(percent: 85, resetsAt: now.addingTimeInterval(3600),
                                  windowMinutes: 300, now: now)!
     expect(f2.willHitBeforeReset, "85% fast → hits before reset")
     expect(f2.hitDate < now.addingTimeInterval(3600), "hit before reset date")
+    expect(f2.projectedPercentAtReset > 100, "projected exceeds 100% (\(f2.projectedPercentAtReset))")
 
     // insufficient data (<10min elapsed) → nil
     let early = Projection.forecast(percent: 5, resetsAt: now.addingTimeInterval(300 * 60 - 300),

@@ -27,10 +27,13 @@ struct UsageBarApp: App {
                         let now = Date()
                         for b in s.limits {
                             if let resets = b.resetsAt, let w = b.windowMinutes,
-                               let f = UsageBarCore.Projection.forecast(percent: b.percent, resetsAt: resets, windowMinutes: w, now: now),
-                               f.willHitBeforeReset {
-                                let s = max(0, Int(f.hitDate.timeIntervalSince(now)))
-                                print("    ⚠︎ \(b.label): on pace to hit limit in \(s/3600)h \((s%3600)/60)m")
+                               let f = UsageBarCore.Projection.forecast(percent: b.percent, resetsAt: resets, windowMinutes: w, now: now) {
+                                if f.willHitBeforeReset {
+                                    let secs = max(0, Int(f.hitDate.timeIntervalSince(now)))
+                                    print("    ⚠︎ \(b.label): on pace to hit limit in \(secs/3600)h \((secs%3600)/60)m")
+                                } else {
+                                    print("    ~ \(b.label): at this pace ≈\(Int(f.projectedPercentAtReset.rounded()))% by reset")
+                                }
                             }
                         }
                         if !s.modelBreakdown.isEmpty {

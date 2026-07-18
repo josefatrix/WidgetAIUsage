@@ -16,6 +16,10 @@ public enum Projection {
         guard ratePerSecond > 0 else { return nil }
         let secondsToLimit = (100 - percent) / ratePerSecond
         let hitDate = now.addingTimeInterval(secondsToLimit)
-        return Forecast(hitDate: hitDate, willHitBeforeReset: hitDate < resetsAt)
+        let secondsUntilReset = max(0, resetsAt.timeIntervalSince(now))
+        let projected = percent + ratePerSecond * secondsUntilReset
+        return Forecast(hitDate: hitDate,
+                        willHitBeforeReset: hitDate < resetsAt,
+                        projectedPercentAtReset: projected)
     }
 }

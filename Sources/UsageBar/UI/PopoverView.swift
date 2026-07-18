@@ -80,6 +80,21 @@ struct PopoverView: View {
                                  value: Format.usd(cost.last30DaysCostUSD),
                                  sub: "estimated")
                     }
+                    if let trend = todayTrend(snap) {
+                        HStack(spacing: 6) {
+                            Text("Today \(Format.usd(trend.today))")
+                                .font(.system(size: 11))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                            Label("\(abs(Int(trend.deltaPct.rounded())))% vs avg",
+                                  systemImage: trend.deltaPct >= 0 ? "arrow.up.right" : "arrow.down.right")
+                                .font(.system(size: 10, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(trend.deltaPct >= 0 ? .orange : .green)
+                            Spacer(minLength: 4)
+                            SparklineView(values: Array(snap.history.suffix(14).map(\.costUSD)))
+                        }
+                    }
                     if let extra = snap.extraUsage {
                         breakdownRow(label: "Extra",
                                      value: "\(Format.usd(extra.usedUSD)) of \(Format.usd(extra.limitUSD)) (\(Int(extra.utilization))%)",
@@ -175,6 +190,17 @@ struct PopoverView: View {
         }
     }
 
+    /// Today's spend vs the trailing daily average (excluding today) — a quick
+    /// "am I burning faster than usual?" signal. Only for USD providers with data.
+    private func todayTrend(_ snap: ProviderSnapshot) -> (today: Double, deltaPct: Double)? {
+        guard snap.costUnit == .usd, let today = snap.history.last?.costUSD, today > 0 else { return nil }
+        let prior = snap.history.dropLast().map(\.costUSD).filter { $0 > 0 }
+        guard prior.count >= 3 else { return nil }
+        let avg = prior.reduce(0, +) / Double(prior.count)
+        guard avg > 0 else { return nil }
+        return (today, (today - avg) / avg * 100)
+    }
+
     /// Headline number with a small label above and a caption below — gives the
     /// two key figures visual weight so the eye lands on them before the detail.
     private func statTile(label: String, value: String, sub: String?) -> some View {
@@ -242,6 +268,30 @@ struct PopoverView: View {
                 }
             }
         }
+    }
+}
+
+/// Tiny always-visible line chart of recent daily spend — an at-a-glance trend
+/// without opening the full 30-day chart.
+struct SparklineView: View {
+    let values: [Double]
+
+    var body: some View {
+        GeometryReader { geo in
+            let maxV = max(values.max() ?? 1, 0.0001)
+            let n = max(1, values.count - 1)
+            Path { p in
+                for (i, v) in values.enumerated() {
+                    let x = geo.size.width * CGFloat(i) / CGFloat(n)
+                    let y = geo.size.height * (1 - CGFloat(v / maxV))
+                    if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
+                    else { p.addLine(to: CGPoint(x: x, y: y)) }
+                }
+            }
+            .stroke(Color.orange.opacity(0.85),
+                    style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
+        }
+        .frame(width: 46, height: 14)
     }
 }
 

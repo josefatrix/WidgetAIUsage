@@ -46,11 +46,18 @@ struct LimitBarView: View {
             .monospacedDigit()
             .foregroundStyle(.secondary)
 
-            if let forecast, forecast.willHitBeforeReset {
-                Label("On pace to hit the limit in \(Format.etaShort(forecast.hitDate, now: now))",
-                      systemImage: "gauge.with.dots.needle.67percent")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+            if let forecast {
+                if forecast.willHitBeforeReset {
+                    Label("On pace to hit the limit in \(Format.etaShort(forecast.hitDate, now: now))",
+                          systemImage: "gauge.with.dots.needle.67percent")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                } else {
+                    Label("At this pace ≈\(Int(forecast.projectedPercentAtReset.rounded()))% by reset",
+                          systemImage: "gauge.with.dots.needle.33percent")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
     }

@@ -69,7 +69,9 @@ enum Format {
 
     /// Compact model name for breakdowns: Claude → "Opus"/"Fable"; gpt/codex trimmed.
     static func shortModel(_ model: String) -> String {
-        if model.hasPrefix("claude-") { return UsageBarCore.ClaudeLimits.prettyModelName(model) }
+        if model.hasPrefix("claude-") {
+            return UsageBarCore.ClaudeLimits.prettyModelName(model, withVersion: true)
+        }
         if model.hasPrefix("gpt-") || model.hasPrefix("codex-") {
             return model.replacingOccurrences(of: "-codex", with: "")
         }

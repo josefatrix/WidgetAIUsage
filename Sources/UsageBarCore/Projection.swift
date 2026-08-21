@@ -8,6 +8,10 @@ public enum Projection {
 
     public static func forecast(percent: Double, resetsAt: Date, windowMinutes: Int, now: Date) -> Forecast? {
         guard percent > 0, percent < 100, windowMinutes > 0 else { return nil }
+        // A reset already in the past means this window closed and we never saw
+        // the one that replaced it: the percentage is a leftover, and projecting
+        // from it would dress stale data up as a live forecast.
+        guard resetsAt > now else { return nil }
         let windowSeconds = Double(windowMinutes) * 60
         let windowStart = resetsAt.addingTimeInterval(-windowSeconds)
         let elapsed = now.timeIntervalSince(windowStart)

@@ -28,9 +28,23 @@ public enum ClaudeLimits {
         return f.date(from: s)
     }
 
-    public static func prettyModelName(_ id: String) -> String {
+    /// "claude-opus-4-8" → "Opus". With `withVersion`, → "Opus 4.8".
+    ///
+    /// The bare family is what a limit bar's scope label wants; the cost breakdown
+    /// needs the version, or two different models both render as "Opus" and the
+    /// list shows the same name twice.
+    public static func prettyModelName(_ id: String, withVersion: Bool = false) -> String {
         for name in ["fable", "mythos", "opus", "sonnet", "haiku"] where id.contains(name) {
-            return name.prefix(1).uppercased() + name.dropFirst()
+            let family = name.prefix(1).uppercased() + name.dropFirst()
+            guard withVersion, let range = id.range(of: name) else { return family }
+            // Digit groups after the family name are the version; an 8-digit group
+            // is a release date (claude-haiku-4-5-20251001), not part of it.
+            let parts = id[range.upperBound...]
+                .split(separator: "-")
+                .prefix { $0.count < 8 && $0.allSatisfy(\.isNumber) }
+            let version: [String] = parts.map { String($0) }
+            guard !version.isEmpty else { return family }
+            return family + " " + version.joined(separator: ".")
         }
         return id
     }
@@ -43,11 +57,13 @@ public enum ClaudeLimits {
                 guard let pct = e.percent else { continue }
                 let label: String
                 let window: Int
+                let kind: LimitKind
                 switch e.kind {
-                case "session": label = "Session"; window = 300
-                case "weekly_all": label = "Weekly"; window = 10080
+                case "session": label = "Session"; window = 300; kind = .session
+                case "weekly_all": label = "Weekly"; window = 10080; kind = .overall
                 case "weekly_scoped":
                     window = 10080
+                    kind = .scoped
                     if let display = e.scope?.model?.display_name {
                         label = display
                     } else if let id = e.scope?.model?.id {
@@ -59,18 +75,18 @@ public enum ClaudeLimits {
                 }
                 bars.append(LimitBar(label: label, percent: pct,
                                      resetsAt: parseISODate(e.resets_at), severity: e.severity,
-                                     windowMinutes: window))
+                                     windowMinutes: window, kind: kind))
             }
             if !bars.isEmpty { return bars }
         }
         var bars: [LimitBar] = []
         if let f = r.five_hour, let u = f.utilization {
             bars.append(LimitBar(label: "Session", percent: u, resetsAt: parseISODate(f.resets_at),
-                                 windowMinutes: 300))
+                                 windowMinutes: 300, kind: .session))
         }
         if let s = r.seven_day, let u = s.utilization {
             bars.append(LimitBar(label: "Weekly", percent: u, resetsAt: parseISODate(s.resets_at),
-                                 windowMinutes: 10080))
+                                 windowMinutes: 10080, kind: .overall))
         }
         return bars
     }

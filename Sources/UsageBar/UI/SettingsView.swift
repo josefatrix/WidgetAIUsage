@@ -19,7 +19,7 @@ struct SettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(RowButtonStyle())
+                .buttonStyle(GhostButtonStyle())
                 Spacer()
                 Text("Settings")
                     .font(.system(size: 13, weight: .bold))

@@ -16,7 +16,7 @@ struct CostHistoryView: View {
     private func value(_ d: DailyCost) -> String {
         switch unit {
         case .usd: return "\(Format.usd(d.costUSD)) · \(Format.tokens(d.tokens))"
-        case .requests: return "\(Int(d.costUSD)) requests"
+        default: return "\(Int(d.costUSD)) \(unit.pluralNoun)"
         }
     }
 
@@ -24,7 +24,7 @@ struct CostHistoryView: View {
         let total = history.reduce(0) { $0 + $1.costUSD }
         switch unit {
         case .usd: return "Total (30d): \(Format.usd(total))"
-        case .requests: return "Total (30d): \(Int(total)) requests"
+        default: return "Total (30d): \(Int(total)) \(unit.pluralNoun)"
         }
     }
 

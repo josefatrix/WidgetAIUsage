@@ -34,4 +34,28 @@ func testCodex() {
     expectEq(Codex.extractModel(from: #"{"type":"session_meta","model":"gpt-5.1-codex-mini"}"#),
              "gpt-5.1-codex-mini", "extract codex model")
     expect(Codex.extractModel(from: #"{"no":"model here"}"#) == nil, "no model -> nil")
+
+    // --- August 2026 format: OpenAI collapsed Codex to a single weekly window
+    // (primary = 10080 min, secondary = null). The old <=300 heuristic still has
+    // to label it correctly and must not choke on the null slot.
+    let newFmt = #"{"payload":{"type":"token_count","rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":36.0,"window_minutes":10080,"resets_at":1785958439},"secondary":null,"credits":{"has_credits":false},"plan_type":"plus"}}}"#
+    guard let nb = Codex.findRateLimits(inLine: newFmt) else { expect(false, "new-format rate limits nil"); return }
+    expectEq(nb.count, 1, "new format → single bar")
+    expectEq(nb[0].label, "Weekly", "new format weekly label")
+    expectEq(nb[0].percent, 36.0, "new format pct")
+    expectEq(nb[0].windowMinutes, 10080, "new format window")
+    expectEq(Codex.planType(inLine: newFmt), "plus", "new format plan")
+
+    // window labels are derived from the real window length, not assumed
+    expectEq(Codex.windowLabel(minutes: 300), "Session", "300m → Session")
+    expectEq(Codex.windowLabel(minutes: 1440), "Daily", "1440m → Daily")
+    expectEq(Codex.windowLabel(minutes: 10080), "Weekly", "10080m → Weekly")
+    expectEq(Codex.windowLabel(minutes: 720), "12h", "720m → 12h")
+    expectEq(Codex.windowLabel(minutes: nil), "Limit", "unknown window → Limit")
+
+    // bars sort shortest-window-first regardless of label
+    let swapped = #"{"payload":{"rate_limits":{"primary":{"used_percent":36.0,"window_minutes":10080,"resets_at":1785958439},"secondary":{"used_percent":12.0,"window_minutes":300,"resets_at":1785958000}}}}"#
+    guard let sb = Codex.findRateLimits(inLine: swapped) else { expect(false, "swapped nil"); return }
+    expectEq(sb[0].windowMinutes, 300, "shortest window first")
+    expectEq(sb[1].windowMinutes, 10080, "longest window last")
 }

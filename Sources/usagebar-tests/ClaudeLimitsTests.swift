@@ -36,6 +36,20 @@ func testClaudeLimits() {
     expectEq(ClaudeLimits.prettyModelName("claude-sonnet-4-6"), "Sonnet", "pretty sonnet")
     expectEq(ClaudeLimits.prettyModelName("claude-opus-4-8"), "Opus", "pretty opus")
 
+    // The bare family name is right for a limit bar's scope label, but it makes the
+    // cost breakdown list "Opus" twice for two different models. With the version,
+    // the two rows are distinguishable.
+    expectEq(ClaudeLimits.prettyModelName("claude-opus-5", withVersion: true), "Opus 5", "opus 5")
+    expectEq(ClaudeLimits.prettyModelName("claude-opus-4-8", withVersion: true), "Opus 4.8", "opus 4.8")
+    expectEq(ClaudeLimits.prettyModelName("claude-fable-5", withVersion: true), "Fable 5", "fable 5")
+    expectEq(ClaudeLimits.prettyModelName("claude-sonnet-4-6", withVersion: true), "Sonnet 4.6", "sonnet 4.6")
+    // dated ids drop the yyyymmdd tail
+    expectEq(ClaudeLimits.prettyModelName("claude-haiku-4-5-20251001", withVersion: true),
+             "Haiku 4.5", "haiku drops date suffix")
+    // unknown family is passed through untouched either way
+    expectEq(ClaudeLimits.prettyModelName("some-other-model", withVersion: true),
+             "some-other-model", "unknown model untouched")
+
     // severity decoded from limits entries
     expectEq(bars.first?.severity, "normal", "severity decoded")
 }

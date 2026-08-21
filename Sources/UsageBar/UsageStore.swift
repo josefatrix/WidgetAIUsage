@@ -23,7 +23,8 @@ enum ProviderState {
 
 @MainActor
 final class UsageStore: ObservableObject {
-    @Published var states: [ProviderID: ProviderState] = [.claude: .loading, .codex: .loading, .gemini: .loading]
+    @Published var states: [ProviderID: ProviderState] = [.claude: .loading, .codex: .loading,
+                                                          .gemini: .loading, .chatgpt: .loading]
     @Published var isRefreshing = false
     @Published var selected: ProviderID {
         didSet { UserDefaults.standard.set(selected.rawValue, forKey: "selectedProvider") }
@@ -38,7 +39,7 @@ final class UsageStore: ObservableObject {
         didSet { UserDefaults.standard.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
     }
 
-    private let providers: [any UsageProvider] = [CodexProvider(), ClaudeProvider(), GeminiProvider()]
+    private let providers: [any UsageProvider] = Providers.all()
     private var timer: Timer?
     private let notifier = Notifier()
 
@@ -48,21 +49,31 @@ final class UsageStore: ObservableObject {
         let interval = UserDefaults.standard.integer(forKey: "refreshIntervalMinutes")
         refreshIntervalMinutes = interval > 0 ? interval : 5
         let style = UserDefaults.standard.string(forKey: "menuBarStyle")
-        menuBarStyle = style.flatMap(MenuBarStyle.init(rawValue:)) ?? .bar
+        // .ring is the new default; a saved "percent" from the old bar-only set no
+        // longer parses and falls through to it, which is the intent.
+        menuBarStyle = style.flatMap(MenuBarStyle.init(rawValue:)) ?? .ring
         startPolling()
         Task { await refreshAll() }
     }
 
     var selectedState: ProviderState { states[selected] ?? .loading }
 
+    /// The two windows the dial draws for a provider — tightest outside.
+    func rings(for id: ProviderID) -> (outer: LimitBar?, inner: LimitBar?) {
+        guard let snap = states[id]?.snapshot else { return (nil, nil) }
+        return UsageWindow.rings(limits: snap.limits, now: Date())
+    }
+
+    /// The bar the menu bar icon reflects: the current session, the same thing the
+    /// dial's outer ring shows. Crossing a critical threshold on any other limit is
+    /// already handled by the notifier, so the icon does not need to shout for it.
     func sessionBar(for id: ProviderID) -> LimitBar? {
-        guard let snap = states[id]?.snapshot else { return nil }
-        return snap.limits.first { $0.label == "Session" } ?? snap.limits.first
+        rings(for: id).outer
     }
 
     var menuBarImage: NSImage {
         MenuBarLabel.image(style: menuBarStyle,
-                           selected: sessionBar(for: selected),
+                           selected: rings(for: selected),
                            claude: sessionBar(for: .claude),
                            codex: sessionBar(for: .codex))
     }

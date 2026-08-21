@@ -27,6 +27,13 @@ func testProjection() {
     // degenerate percents → nil
     expect(Projection.forecast(percent: 0, resetsAt: now.addingTimeInterval(3600), windowMinutes: 300, now: now) == nil, "0% → nil")
     expect(Projection.forecast(percent: 100, resetsAt: now.addingTimeInterval(3600), windowMinutes: 300, now: now) == nil, "100% → nil")
+
+    // a reset that already passed means the window closed and we never saw the
+    // new one — extrapolating from it invents a "projected %" out of stale data
+    expect(Projection.forecast(percent: 36, resetsAt: now.addingTimeInterval(-15 * 86_400),
+                               windowMinutes: 10_080, now: now) == nil, "expired window → nil")
+    expect(Projection.forecast(percent: 36, resetsAt: now, windowMinutes: 10_080, now: now) == nil,
+           "reset exactly now → nil")
 }
 
 func testModelBreakdown() {

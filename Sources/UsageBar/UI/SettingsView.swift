@@ -36,6 +36,13 @@ struct SettingsView: View {
                 }
                 .font(.system(size: 12))
 
+                Picker("Popover", selection: $store.popoverStyle) {
+                    ForEach(PopoverStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .font(.system(size: 12))
+
                 Picker("Menu bar icon", selection: $store.menuBarStyle) {
                     ForEach(MenuBarStyle.allCases) { style in
                         Text(style.label).tag(style)

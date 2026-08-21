@@ -80,8 +80,10 @@ struct UsageBarApp: App {
             print("  \(name)  \(Int(image.size.width))x\(Int(image.size.height))")
         }
 
+        for style in PopoverStyle.allCases {
         for scheme in [ColorScheme.dark, .light] {
-            let suffix = scheme == .dark ? "dark" : "light"
+            let suffix = "\(style.rawValue)-\(scheme == .dark ? "dark" : "light")"
+            store.popoverStyle = style
             for id in ProviderID.allCases {
                 store.selected = id
                 let view = PopoverView()
@@ -95,6 +97,8 @@ struct UsageBarApp: App {
                 write(renderer.nsImage, "popover-\(id.rawValue)-\(suffix).png")
             }
         }
+        }
+        store.popoverStyle = .dial
 
         // Colour ramp: the one thing you cannot check by reading the code, because
         // it depends on LimitLevel, the accent colour and the appearance at once.

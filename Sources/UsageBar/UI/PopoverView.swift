@@ -61,7 +61,10 @@ struct PopoverView: View {
                     amber: true)
             }
 
-            dial(snap, now: now)
+            switch store.popoverStyle {
+            case .dial: dial(snap, now: now)
+            case .panel: panel(snap, now: now)
+            }
 
             // Why the dial is empty or old. A blank ring with no explanation is
             // the worst outcome — the user cannot tell "no quota exists" from
@@ -76,7 +79,11 @@ struct PopoverView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            costLine(snap)
+            if store.popoverStyle == .dial {
+                costLine(snap)
+            } else {
+                costTiles(snap)
+            }
 
             if let extra = snap.extraUsage {
                 breakdownRow(label: "Extra",
@@ -189,6 +196,8 @@ struct PopoverView: View {
             }
         }
 
+        // Dial-only: the panel gives every limit its own meter, so a per-model one
+        // at 100% is already impossible to miss there.
         if let pressing {
             GlassNotice(text: "\(pressing.label) at \(Int(pressing.percent.rounded()))% of its weekly limit",
                         systemImage: "exclamationmark.circle", amber: true)
@@ -218,6 +227,67 @@ struct PopoverView: View {
 
     static func tint(_ bar: LimitBar?) -> Color {
         bar.map { limitColor(percent: $0.percent, severity: $0.severity) } ?? .secondary
+    }
+
+    // MARK: panel
+
+    /// "A · Glass Panel": one labelled meter per limit, stacked. Denser than the
+    /// dial and every limit gets equal billing, including per-model ones — the
+    /// dial has only two rings, so those need a separate warning there.
+    @ViewBuilder
+    private func panel(_ snap: ProviderSnapshot, now: Date) -> some View {
+        if snap.limits.isEmpty {
+            VStack(spacing: 2) {
+                Text(reading(snap, headline: nil))
+                    .font(.system(size: 28, weight: .light))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(readingCaption(snap, headline: nil))
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .tracking(0.4)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        } else {
+            VStack(alignment: .leading, spacing: 11) {
+                ForEach(UsageWindow.ranked(limits: snap.limits, now: now)) { bar in
+                    LimitBarView(limit: bar, now: now)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func costTiles(_ snap: ProviderSnapshot) -> some View {
+        if let cost = snap.cost {
+            HStack(spacing: 8) {
+                GlassStatTile(label: cost.sessionLabel,
+                              value: Format.usd(cost.sessionCostUSD),
+                              sub: Format.tokens(cost.sessionTokens))
+                GlassStatTile(label: "Last 30 days",
+                              value: Format.usd(cost.last30DaysCostUSD),
+                              sub: "estimated")
+            }
+            HStack(spacing: 6) {
+                Text("Today \(Format.usd(snap.history.last?.costUSD ?? 0))")
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                SparklineView(values: Array(snap.history.suffix(14).map(\.costUSD)))
+            }
+        } else if !snap.history.isEmpty {
+            HStack(spacing: 8) {
+                GlassStatTile(label: "Today",
+                              value: "\(Int(snap.history.last?.costUSD ?? 0))",
+                              sub: snap.costUnit.pluralNoun)
+                GlassStatTile(label: "Last 30 days",
+                              value: "\(Int(snap.history.reduce(0) { $0 + $1.costUSD }))",
+                              sub: snap.costUnit.pluralNoun)
+            }
+        }
     }
 
     private func projection(for bar: LimitBar?, now: Date) -> Forecast? {
@@ -500,7 +570,7 @@ struct ProviderSelector: View {
     @EnvironmentObject var store: UsageStore
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: store.popoverStyle == .dial ? 2 : 5) {
             ForEach(ProviderID.allCases) { id in
                 chip(id)
             }
@@ -515,21 +585,27 @@ struct ProviderSelector: View {
         Button {
             withAnimation(PopoverView.uiSpring) { store.selected = id }
         } label: {
-            VStack(spacing: 5) {
-                MiniRing(outer: rings.outer?.percent,
-                         inner: rings.inner?.percent,
-                         color: color,
-                         dimmed: rings.outer?.severity == "stale")
-                Text(id.displayName)
-                    .font(.system(size: 10, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+            Group {
+                if store.popoverStyle == .dial {
+                    VStack(spacing: 5) {
+                        MiniRing(outer: rings.outer?.percent,
+                                 inner: rings.inner?.percent,
+                                 color: color,
+                                 dimmed: rings.outer?.severity == "stale")
+                        Text(id.displayName)
+                            .font(.system(size: 10, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .glassWash(Glass.chipRadius, tint: selected ? 0.10 : 0, lit: selected ? 1 : 0)
+                    .glassSelection(Glass.chipRadius, active: selected)
+                } else {
+                    ProviderChip(id: id, bar: rings.outer, selected: selected)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
-            .glassWash(Glass.chipRadius, tint: selected ? 0.10 : 0, lit: selected ? 1 : 0)
-            .glassSelection(Glass.chipRadius, active: selected)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -38,6 +38,9 @@ final class UsageStore: ObservableObject {
     @Published var menuBarStyle: MenuBarStyle {
         didSet { UserDefaults.standard.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
     }
+    @Published var popoverStyle: PopoverStyle {
+        didSet { UserDefaults.standard.set(popoverStyle.rawValue, forKey: "popoverStyle") }
+    }
 
     private let providers: [any UsageProvider] = Providers.all()
     private var timer: Timer?
@@ -52,6 +55,8 @@ final class UsageStore: ObservableObject {
         // .ring is the new default; a saved "percent" from the old bar-only set no
         // longer parses and falls through to it, which is the intent.
         menuBarStyle = style.flatMap(MenuBarStyle.init(rawValue:)) ?? .ring
+        let popover = UserDefaults.standard.string(forKey: "popoverStyle")
+        popoverStyle = popover.flatMap(PopoverStyle.init(rawValue:)) ?? .dial
         startPolling()
         Task { await refreshAll() }
     }

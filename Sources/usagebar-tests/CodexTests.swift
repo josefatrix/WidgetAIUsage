@@ -2,6 +2,14 @@ import Foundation
 import UsageBarCore
 
 func testCodex() {
+    // Spark has its own quota. It must never replace the general Codex reading.
+    let spark = #"{"payload":{"rate_limits":{"limit_id":"codex_bengalfox","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":0,"window_minutes":300},"secondary":{"used_percent":0,"window_minutes":10080}}}}"#
+    expect(Codex.findRateLimits(inLine: spark) == nil, "Spark quota is not general Codex usage")
+    let generalZero = #"{"payload":{"rate_limits":{"limit_id":"codex","primary":{"used_percent":0,"window_minutes":10080}}}}"#
+    expectEq(Codex.findRateLimits(inLine: generalZero)?.first?.percent, 0, "a real general quota reset remains zero")
+    let missingPercent = #"{"payload":{"rate_limits":{"limit_id":"codex","primary":{"window_minutes":300}}}}"#
+    expect(Codex.findRateLimits(inLine: missingPercent) == nil, "missing usage is not zero")
+    testCodexQuotaHistory()
     // JWT: header.payload.sig with base64url payload
     let payload = #"{"email":"user@example.com","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}"#
     let b64 = Data(payload.utf8).base64EncodedString()
@@ -58,4 +66,59 @@ func testCodex() {
     guard let sb = Codex.findRateLimits(inLine: swapped) else { expect(false, "swapped nil"); return }
     expectEq(sb[0].windowMinutes, 300, "shortest window first")
     expectEq(sb[1].windowMinutes, 10080, "longest window last")
+}
+
+func testCodexQuotaHistory() {
+    // Catch both bucket substitution and choosing file mtime instead of event time.
+    let general = #"{"timestamp":"2026-09-05T19:11:57Z","payload":{"rate_limits":{"limit_id":"codex","primary":{"used_percent":37,"window_minutes":10080,"resets_at":1789105984},"secondary":null,"plan_type":"prolite"}}}"#
+    let spark = #"{"timestamp":"2026-09-05T19:17:34Z","payload":{"rate_limits":{"limit_id":"codex_bengalfox","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":0,"window_minutes":300,"resets_at":1788653836},"secondary":{"used_percent":0,"window_minutes":10080,"resets_at":1789105963}}}}"#
+    let older = general.replacingOccurrences(of: "19:11:57", with: "18:11:57")
+        .replacingOccurrences(of: "\"used_percent\":37", with: "\"used_percent\":33")
+    let reset = general.replacingOccurrences(of: "19:11:57", with: "20:11:57")
+        .replacingOccurrences(of: "\"used_percent\":37", with: "\"used_percent\":0")
+    let expectedDate = Date(timeIntervalSince1970: 1788635517)
+    let joined = [general, spark, older, "{partial"].joined(separator: "\n")
+    let observation = Codex.rateLimitObservation(in: joined)
+    expectEq(observation?.limits.first?.percent, 37, "newer Spark and older appended events do not replace general quota")
+    expectEq(observation?.observedAt, expectedDate, "quota freshness comes from its event")
+    expectEq(observation?.limitID, "codex", "preserve quota identity")
+    expectEq(observation?.plan, "prolite", "plan belongs to the selected quota event")
+    expectEq(Codex.rateLimitObservation(in: general + "\n" + reset)?.limits.first?.percent, 0,
+             "newer general zero replaces a previous nonzero reading")
+    expect(Codex.rateLimitObservation(in: spark) == nil, "Spark-only activity has no general observation")
+    expect(Codex.rateLimitObservation(in: general.replacingOccurrences(of: "2026-09-05T19:11:57Z", with: "invalid")) == nil,
+           "an undated quota cannot claim to be the latest")
+    let legacy = general.replacingOccurrences(of: "\"limit_id\":\"codex\",", with: "")
+    expectEq(Codex.rateLimitObservation(in: legacy)?.limits.first?.percent, 37, "legacy general events without a bucket still work")
+
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("usagebar-quota-tests-\(UUID().uuidString)")
+    do {
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let generalFile = dir.appendingPathComponent("general.jsonl")
+        try general.write(to: generalFile, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: generalFile.path)
+        var files: [URL] = []
+        for i in 0..<6 {
+            let file = dir.appendingPathComponent("spark-\(i).jsonl")
+            try spark.write(to: file, atomically: true, encoding: .utf8)
+            files.append(file)
+        }
+        let olderFile = dir.appendingPathComponent("recent-file-old-event.jsonl")
+        try older.write(to: olderFile, atomically: true, encoding: .utf8)
+        files.insert(olderFile, at: 0)
+        files.append(generalFile)
+        files.insert(dir.appendingPathComponent("missing.jsonl"), at: 0)
+        let selected = Codex.latestRateLimits(inFiles: files)
+        expectEq(selected?.limits.first?.percent, 37, "find general quota beyond five newer files and ignore unrelated mtime")
+        expectEq(selected?.observedAt, expectedDate, "unrelated file activity does not refresh the quota timestamp")
+        expectEq(Codex.latestRateLimits(inFiles: Array(files.reversed()))?.limits.first?.percent, 37,
+                 "quota selection is independent of file order")
+        try reset.write(to: generalFile, atomically: true, encoding: .utf8)
+        expectEq(Codex.latestRateLimits(inFiles: files)?.limits.first?.percent, 0, "a real reset survives cross-file selection")
+        expect(Codex.latestRateLimits(inFiles: []) == nil, "no files means unknown quota")
+    } catch {
+        expect(false, "quota history fixture failed: \(error)")
+    }
 }

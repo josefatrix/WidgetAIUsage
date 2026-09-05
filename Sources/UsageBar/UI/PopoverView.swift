@@ -56,7 +56,9 @@ struct PopoverView: View {
         if let snap = state.snapshot {
             if snap.dataThrough != nil, snap.isStale(now: now, threshold: Self.staleAfter) {
                 GlassNotice(
-                    text: "Last local \(store.selected.displayName) session \(Format.relativeAge(snap.asOf, now: now)) — everything below is from then.",
+                    text: store.selected == .codex && !snap.limits.isEmpty
+                        ? "General Codex quota observed \(Format.relativeAge(snap.asOf, now: now)) — local costs refresh separately."
+                        : "Last local \(store.selected.displayName) session \(Format.relativeAge(snap.asOf, now: now)) — everything below is from then.",
                     systemImage: "clock.badge.exclamationmark",
                     amber: true)
             }

@@ -10,6 +10,8 @@ struct CodexSessionData: Codable {
 final class CodexProvider: UsageProvider {
     let id = ProviderID.codex
     private let usageCache = JSONLCache<CodexSessionData?>(persistKey: "codex-usage")
+    private let limitsCache = JSONLCache<Codex.RateLimitObservation?>(persistKey: "codex-general-limits-v1")
+    private var lastGeneralLimits: Codex.RateLimitObservation?
 
     func fetch() async -> Result<ProviderSnapshot, FetchFailure> {
         let sessionsRoot = home.appendingPathComponent(".codex/sessions")
@@ -30,23 +32,17 @@ final class CodexProvider: UsageProvider {
             return .failure(FetchFailure(message: "No Codex sessions in ~/.codex/sessions"))
         }
 
-        // Limits: newest rate_limits event across the most recent files. Deliberately
-        // NOT restricted to the 30-day cost window — Codex can go weeks without
-        // writing a rollout, and the last figure we saw (clearly marked stale) is
-        // more useful than an empty bar.
-        var limits: [LimitBar] = []
-        var plan: String? = account.plan
-        for (url, _) in dated.prefix(5) {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            for line in contents.split(separator: "\n").reversed() {
-                if let bars = Codex.findRateLimits(inLine: String(line)) {
-                    limits = bars
-                    plan = Codex.planType(inLine: String(line)) ?? plan
-                    break
-                }
-            }
-            if !limits.isEmpty { break }
+        // Model-specific buckets (for example Spark) are independent of the
+        // general quota. Search every file, caching unchanged parses, and select
+        // by the quota event date rather than unrelated session-file activity.
+        if let observed = Codex.latestRateLimits(inFiles: dated.map(\.url), load: { url in
+            limitsCache.value(forFile: url) { Codex.rateLimitObservation(in: $0) } ?? nil
+        }), lastGeneralLimits.map({ observed.observedAt >= $0.observedAt }) ?? true {
+            lastGeneralLimits = observed
         }
+        limitsCache.save()
+        var limits = lastGeneralLimits?.limits ?? []
+        let plan = lastGeneralLimits?.plan ?? account.plan
         // A window whose reset already passed says nothing about current usage, so
         // flag it instead of presenting a weeks-old percentage as live.
         limits = limits.map { $0.hasExpired(now: now) ? $0.markedStale() : $0 }
@@ -102,7 +98,10 @@ final class CodexProvider: UsageProvider {
         }
         return .success(ProviderSnapshot(account: account.email, plan: plan?.capitalized,
                                          limits: limits, cost: cost, history: history,
-                                         fetchedAt: now, dataThrough: newest.mtime,
+                                         fetchedAt: now, dataThrough: lastGeneralLimits?.observedAt ?? newest.mtime,
+                                         limitsNote: limits.isEmpty
+                                             ? "No general Codex quota found in local sessions — model-specific quotas are not shown here."
+                                             : nil,
                                          modelBreakdown: modelBreakdown))
     }
 }

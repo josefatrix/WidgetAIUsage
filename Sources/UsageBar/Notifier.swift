@@ -11,7 +11,10 @@ final class Notifier {
     func check(provider: ProviderID, limits: [LimitBar]) {
         // UNUserNotificationCenter crashes in bare (non-bundled) dev binaries.
         guard Bundle.main.bundleIdentifier != nil else { return }
-        for bar in limits {
+        let now = Date()
+        // A percentage left over from a window that already reset can't cross a
+        // threshold today — alerting on it would fire off weeks-old data.
+        for bar in limits where !bar.hasExpired(now: now) {
             for tier in [95.0, 80.0] where bar.percent >= tier {
                 let window = bar.resetsAt.map { String(Int($0.timeIntervalSince1970)) } ?? "none"
                 let key = "\(provider.rawValue)|\(bar.label)|\(window)|\(Int(tier))"

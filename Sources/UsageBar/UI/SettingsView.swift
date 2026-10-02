@@ -11,7 +11,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Button {
-                    withAnimation(.easeOut(duration: 0.15)) { isPresented = false }
+                    withAnimation(PopoverView.uiSpring) { isPresented = false }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
@@ -19,7 +19,7 @@ struct SettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(RowButtonStyle())
+                .buttonStyle(GhostButtonStyle())
                 Spacer()
                 Text("Settings")
                     .font(.system(size: 13, weight: .bold))
@@ -33,6 +33,13 @@ struct SettingsView: View {
                     Text("5 min").tag(5)
                     Text("15 min").tag(15)
                     Text("30 min").tag(30)
+                }
+                .font(.system(size: 12))
+
+                Picker("Popover", selection: $store.popoverStyle) {
+                    ForEach(PopoverStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
                 }
                 .font(.system(size: 12))
 

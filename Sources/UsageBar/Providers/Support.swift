@@ -2,18 +2,41 @@ import Foundation
 import UsageBarCore
 
 enum ProviderID: String, CaseIterable, Identifiable {
-    case codex, claude, gemini
+    case claude, codex, gemini, chatgpt
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .codex: return "Codex"
         case .claude: return "Claude"
         case .gemini: return "Gemini"
+        case .chatgpt: return "ChatGPT"
+        }
+    }
+
+    /// Set for providers that will never have limit bars, explaining why. Drives
+    /// the popover note and suppresses the empty meter in the selector — an empty
+    /// track reads as 0%/broken rather than "not applicable".
+    var noQuotaNote: String? {
+        switch self {
+        case .claude, .codex:
+            return nil
+        case .gemini:
+            return "Gemini doesn't expose quota limits locally — showing activity only."
+        case .chatgpt:
+            return "ChatGPT publishes no quota to this Mac — desktop conversations only, not web or phone."
         }
     }
 }
 
 struct FetchFailure: Error { let message: String }
+
+/// The one list of providers. It used to be spelled out separately in UsageStore
+/// and in the --check path, which is how ChatGPT ended up missing from --check.
+enum Providers {
+    static func all() -> [any UsageProvider] {
+        [ClaudeProvider(), CodexProvider(), GeminiProvider(), ChatGPTProvider()]
+    }
+}
 
 protocol UsageProvider {
     var id: ProviderID { get }

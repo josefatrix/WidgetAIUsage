@@ -29,4 +29,27 @@ public enum Aggregation {
         return (recent.reduce(0) { $0 + $1.costUSD },
                 recent.reduce(0) { $0 + $1.input + $1.output })
     }
+
+    public static func modelBreakdown(events: [UsageEvent], since: Date) -> [ModelCost] {
+        var byModel: [String: (Double, Int)] = [:]
+        for e in events where e.timestamp >= since {
+            let cur = byModel[e.model] ?? (0, 0)
+            byModel[e.model] = (cur.0 + e.costUSD, cur.1 + e.input + e.output)
+        }
+        return byModel
+            .map { ModelCost(model: $0.key, costUSD: $0.value.0, tokens: $0.value.1) }
+            .sorted { $0.costUSD > $1.costUSD }
+    }
+
+    public static func topProjects(_ costs: [String: Double], limit: Int) -> [ProjectCost] {
+        costs.map { ProjectCost(project: $0.key, costUSD: $0.value) }
+            .sorted { $0.costUSD > $1.costUSD }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    public static func lastPathComponent(_ path: String) -> String {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+        return parts.last.map(String.init) ?? path
+    }
 }

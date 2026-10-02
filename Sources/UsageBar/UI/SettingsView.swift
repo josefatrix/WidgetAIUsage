@@ -9,22 +9,24 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Button {
-                    withAnimation(PopoverView.uiSpring) { isPresented = false }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
-                        Text("Back")
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(GhostButtonStyle())
-                Spacer()
+            // Title centred on the panel itself, not between the button and a
+            // guessed-width spacer, so it stays centred whatever "Back" measures.
+            ZStack {
                 Text("Settings")
                     .font(.system(size: 13, weight: .bold))
-                Spacer()
-                Color.clear.frame(width: 50, height: 1)
+                HStack {
+                    Button {
+                        withAnimation(PopoverView.uiSpring) { isPresented = false }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
+                            Text("Back")
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                    Spacer()
+                }
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -50,6 +52,19 @@ struct SettingsView: View {
                 }
                 .font(.system(size: 12))
 
+                if store.menuBarStyle != .dual {
+                    Picker("Menu bar shows", selection: $store.menuBarProvider) {
+                        ForEach(ProviderID.allCases.filter { $0.noQuotaNote == nil }) { id in
+                            Text(id.displayName).tag(ProviderID?.some(id))
+                        }
+                        Text("Open tab").tag(ProviderID?.none)
+                    }
+                    .font(.system(size: 12))
+                }
+
+                Toggle("Notify at 80% and 95%", isOn: $store.notificationsEnabled)
+                    .font(.system(size: 12))
+
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .font(.system(size: 12))
                     .onChange(of: launchAtLogin) { _, enabled in
@@ -74,7 +89,7 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 4)
 
-            Text("Data: Anthropic usage API + local Claude/Codex logs. Costs are estimates.")
+            Text("Data: Anthropic usage API + local Claude, Codex, Gemini and ChatGPT logs. Costs are estimates.")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         }

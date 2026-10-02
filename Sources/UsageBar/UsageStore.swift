@@ -44,6 +44,15 @@ final class UsageStore: ObservableObject {
     @Published var popoverStyle: PopoverStyle {
         didSet { UserDefaults.standard.set(popoverStyle.rawValue, forKey: "popoverStyle") }
     }
+    /// Which provider the menu bar icon tracks; nil follows the open tab. Following
+    /// the tab meant peeking at Gemini (no quota) blanked the icon, so the default
+    /// is pinned to Claude.
+    @Published var menuBarProvider: ProviderID? {
+        didSet { UserDefaults.standard.set(menuBarProvider?.rawValue ?? "", forKey: "menuBarProvider") }
+    }
+    @Published var notificationsEnabled: Bool {
+        didSet { UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled") }
+    }
 
     private let providers: [any UsageProvider] = Providers.all()
     private var timer: Timer?
@@ -64,6 +73,12 @@ final class UsageStore: ObservableObject {
         menuBarStyle = style.flatMap(MenuBarStyle.init(rawValue:)) ?? .ring
         let popover = UserDefaults.standard.string(forKey: "popoverStyle")
         popoverStyle = popover.flatMap(PopoverStyle.init(rawValue:)) ?? .dial
+        if let pinned = UserDefaults.standard.string(forKey: "menuBarProvider") {
+            menuBarProvider = ProviderID(rawValue: pinned)  // "" = follow the open tab
+        } else {
+            menuBarProvider = .claude
+        }
+        notificationsEnabled = UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true
         startPolling()
         Task { await refreshAll() }
     }
@@ -85,9 +100,17 @@ final class UsageStore: ObservableObject {
 
     var menuBarImage: NSImage {
         MenuBarLabel.image(style: menuBarStyle,
-                           selected: rings(for: selected),
+                           selected: rings(for: menuBarProvider ?? selected),
                            claude: sessionBar(for: .claude),
                            codex: sessionBar(for: .codex))
+    }
+
+    /// What VoiceOver reads for the menu bar icon, which is otherwise just a picture.
+    var menuBarAccessibilityLabel: String {
+        let id = menuBarProvider ?? selected
+        guard let bar = sessionBar(for: id) else { return "UsageBar, \(id.displayName): no limit data" }
+        let stale = bar.severity == "stale" ? ", out of date" : ""
+        return "UsageBar, \(id.displayName) \(bar.label): \(Int(bar.percent.rounded())) percent used\(stale)"
     }
 
     func refreshAll() async {
@@ -111,7 +134,7 @@ final class UsageStore: ObservableObject {
         switch await provider.fetch() {
         case .success(let snap):
             states[provider.id] = .ready(snap)
-            notifier.check(provider: provider.id, limits: snap.limits)
+            if notificationsEnabled { notifier.check(provider: provider.id, limits: snap.limits) }
         case .failure(let err):
             states[provider.id] = .failed(err.message, last: states[provider.id]?.snapshot)
         }

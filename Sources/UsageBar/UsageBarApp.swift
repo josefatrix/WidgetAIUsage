@@ -149,6 +149,7 @@ struct UsageBarApp: App {
                 .environmentObject(store)
         } label: {
             Image(nsImage: store.menuBarImage)
+                .accessibilityLabel(store.menuBarAccessibilityLabel)
         }
         .menuBarExtraStyle(.window)
     }

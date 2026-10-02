@@ -70,15 +70,17 @@ Prints both providers' live data to stdout and exits.
 
 ## Troubleshooting
 
-**Claude usage isn't updating.** Open the popover: if something is wrong, an orange message under the header says why (Keychain permission pending, expired token, Anthropic rate-limiting the usage endpoint). For the full picture run:
+**Claude limits stuck or "Limits endpoint returned 429".** Anthropic's usage endpoint rate-limits third-party apps hard and can keep answering 429 for hours. Turn on **Settings → Read limits from Claude Code** (or click the button under the warning). UsageBar then reads the limits Claude Code itself reports after every reply, through a small status line script in `~/.claude/usagebar/`, and no longer depends on that endpoint. A status line you already had keeps working; turning the setting off restores it. The API is still called, at most every 15 minutes, for per-model limits and extra usage.
+
+When the endpoint does fail, UsageBar keeps the last good limits, says how old they are, and backs off (3, 6, 12, then 15 minutes) instead of retrying into the block.
+
+**Using Claude Code from the desktop app?** Only the `claude` CLI renews the sign-in UsageBar reads from the Keychain. If you've stopped using the CLI, that token eventually expires and the popover says so; run `claude` once in Terminal to renew it. Local cost data is unaffected.
+
+For the full picture run:
 
 ```sh
 /Applications/UsageBar.app/Contents/MacOS/UsageBar --check
 ```
-
-When the limits endpoint fails, UsageBar keeps showing the last good limits and retries on its own; it backs off automatically if Anthropic rate-limits it.
-
-**Using Claude Code from the desktop app?** Only the `claude` CLI renews the sign-in UsageBar reads from the Keychain. If you've stopped using the CLI, that token eventually expires and the popover says so; run `claude` once in Terminal to renew it. Local cost data is unaffected.
 
 ## Known limitations
 

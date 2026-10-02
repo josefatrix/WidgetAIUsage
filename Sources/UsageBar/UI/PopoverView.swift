@@ -8,6 +8,7 @@ struct PopoverView: View {
     @State private var showSettings = false
     @State private var showModels = false
     @State private var showProjects = false
+    @State private var connectError: String? = nil
 
     /// Critically damped spring — Apple's default UI motion (damping 1.0).
     static let uiSpring = Animation.spring(duration: 0.3, bounce: 0)
@@ -79,6 +80,18 @@ struct PopoverView: View {
             // the local logs were fresh but the limits were a day old.)
             if let note = snap.limitsNote {
                 GlassNotice(text: note, systemImage: "exclamationmark.triangle", amber: true)
+                // The fix, one click from the complaint.
+                if store.selected == .claude, !store.claudeStatusLineInstalled {
+                    ghostButton("Read limits from Claude Code", icon: "link") {
+                        connectError = store.setClaudeStatusLine(true)
+                    }
+                }
+                if let connectError {
+                    Text(connectError)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else if let note = store.selected.noQuotaNote, snap.limits.isEmpty {
                 Text(note)
                     .font(.system(size: 10))

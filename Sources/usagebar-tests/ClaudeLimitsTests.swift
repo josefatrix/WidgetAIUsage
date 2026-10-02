@@ -68,3 +68,35 @@ func testExtraUsage() {
     let unused = #"{"extra_usage":{"is_enabled":false,"monthly_limit":1000,"used_credits":0,"utilization":0,"decimal_places":2}}"#
     expect(ClaudeLimits.parseExtraUsage(Data(unused.utf8)) == nil, "zero+disabled -> nil")
 }
+
+func testClaudeStatusLine() {
+    let json = """
+    {"session_id":"abc","model":{"id":"claude-opus-5-5"},
+     "rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1738425600},
+                    "seven_day":{"used_percentage":41,"resets_at":1738857600}}}
+    """.data(using: .utf8)!
+    let bars = ClaudeLimits.parseStatusLine(json)
+    expectEq(bars.count, 2, "statusline bar count")
+    if bars.count == 2 {
+        expectEq(bars[0].label, "Session", "statusline session label")
+        expectEq(bars[0].percent, 23.5, "statusline session pct")
+        expectEq(bars[0].resetsAt, Date(timeIntervalSince1970: 1738425600), "statusline session reset")
+        expectEq(bars[0].kind, LimitKind.session, "statusline session kind")
+        expectEq(bars[1].label, "Weekly", "statusline weekly label")
+        expectEq(bars[1].percent, 41.0, "statusline weekly pct (integer JSON)")
+        expectEq(bars[1].windowMinutes, 10080, "statusline weekly window")
+    }
+
+    // One window gone (Claude Code drops a window once it resets).
+    let partial = """
+    {"rate_limits":{"seven_day":{"used_percentage":12,"resets_at":1738857600}}}
+    """.data(using: .utf8)!
+    let p = ClaudeLimits.parseStatusLine(partial)
+    expectEq(p.count, 1, "statusline partial count")
+    expectEq(p.first?.label, "Weekly", "statusline partial label")
+
+    // Before the first reply of a session there is no rate_limits at all.
+    let none = #"{"session_id":"abc","model":{"id":"x"}}"#.data(using: .utf8)!
+    expect(ClaudeLimits.parseStatusLine(none).isEmpty, "statusline without rate_limits")
+}
+

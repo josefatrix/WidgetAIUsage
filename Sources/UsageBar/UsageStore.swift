@@ -50,6 +50,8 @@ final class UsageStore: ObservableObject {
     @Published var menuBarProvider: ProviderID? {
         didSet { UserDefaults.standard.set(menuBarProvider?.rawValue ?? "", forKey: "menuBarProvider") }
     }
+    /// Whether Claude Code's status line feeds limits to UsageBar (see ClaudeStatusLine).
+    @Published private(set) var claudeStatusLineInstalled = ClaudeStatusLine.isInstalled
     @Published var notificationsEnabled: Bool {
         didSet { UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled") }
     }
@@ -103,6 +105,21 @@ final class UsageStore: ObservableObject {
                            selected: rings(for: menuBarProvider ?? selected),
                            claude: sessionBar(for: .claude),
                            codex: sessionBar(for: .codex))
+    }
+
+    /// Connects or disconnects Claude Code's status line feed. Returns an error
+    /// message to show, or nil on success.
+    @discardableResult
+    func setClaudeStatusLine(_ on: Bool) -> String? {
+        defer { claudeStatusLineInstalled = ClaudeStatusLine.isInstalled }
+        do {
+            if on { try ClaudeStatusLine.install() } else { try ClaudeStatusLine.uninstall() }
+        } catch {
+            return "Couldn't update ~/.claude/settings.json: "
+                + ((error as? FetchFailure)?.message ?? error.localizedDescription)
+        }
+        Task { await refreshAll() }
+        return nil
     }
 
     /// What VoiceOver reads for the menu bar icon, which is otherwise just a picture.

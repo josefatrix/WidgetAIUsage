@@ -12,82 +12,109 @@ final class ClaudeProvider: UsageProvider {
     private let fileCache = JSONLCache<ClaudeFileData>(persistKey: "claude-files-v2")
 
     func fetch() async -> Result<ProviderSnapshot, FetchFailure> {
-        let creds: ClaudeCredentials
-        switch Self.readKeychainCredentials() {
-        case .success(let c): creds = c
-        case .failure(let f): return .failure(f)
-        }
-        let account = Self.readAccountEmail()
-        let plan = creds.subscriptionType?.capitalized
-
         let now = Date()
         loadCachedLimits()
 
-        var limits: [LimitBar] = []
-        var extraUsage: ExtraUsage? = nil
-        var limitsError: String? = nil
+        // The Keychain token is only needed for the usage endpoint. Limits fed by
+        // Claude Code's status line and the local cost scan work without it, so a
+        // missing or dead token degrades the snapshot instead of failing it.
+        let fed = ClaudeStatusLine.read()
+        var apiError: String? = nil
+        var plan: String? = nil
+        switch Self.readKeychainCredentials() {
+        case .success(let creds):
+            plan = creds.subscriptionType?.capitalized
+            // With Claude Code feeding session/weekly, the API only adds per-model
+            // limits and extra usage, which can wait; keep well clear of its 429s.
+            let interval = fed != nil ? 15 * 60 : Self.minLimitsInterval
+            apiError = await refreshLimitsFromAPI(creds: creds, now: now, minInterval: interval)
+        case .failure(let f):
+            apiError = f.message
+        }
+
+        // Two sources for the same session/weekly numbers; the newer one wins.
+        // Per-model limits and extra usage only exist in the API's answer.
+        var limits = lastLimits
+        var limitsAsOf = lastLimitsAt
+        var fromClaudeCode = false
+        if let fed, fed.at > (lastLimitsAt ?? .distantPast) {
+            limits = fed.bars + lastLimits.filter { $0.kind == .scoped }
+            limitsAsOf = fed.at
+            fromClaudeCode = true
+        }
+        // A window that has closed since is a leftover, not today's usage.
+        limits = limits.map { $0.hasExpired(now: now) ? $0.markedStale() : $0 }
+
         var limitsNote: String? = nil
-        do {
-            if let until = limitsBackoffUntil, now < until {
-                // Calling again while Anthropic is rate-limiting us only extends the
-                // block; that is how a 429 used to stick around for a whole day.
-                throw FetchFailure(message: Self.rateLimitedMessage(until: until, now: now))
-            }
-            if let expires = creds.expiresAt, expires < now {
-                // Only the `claude` CLI renews this Keychain token. Someone who moved
-                // to the desktop app's Code tab can be left with a dead one.
-                throw FetchFailure(message: "Claude Code's saved sign-in expired \(Format.relativeAge(expires, now: now)). Run `claude` once in Terminal to renew it")
-            }
-            if let last = lastLimitsAt, !lastLimits.isEmpty,
-               now.timeIntervalSince(last) < Self.minLimitsInterval {
-                // Polls and popover opens arrive in bursts; one call a minute is plenty.
-                limits = lastLimits
-                extraUsage = lastExtra
-            } else {
-                (limits, extraUsage) = try await Self.fetchLimits(token: creds.accessToken)
-                lastLimits = limits
-                lastExtra = extraUsage
-                lastLimitsAt = now
-                limitsBackoffUntil = nil
-                saveCachedLimits(limits, extra: extraUsage, at: now)
-            }
-        } catch {
-            if let rate = error as? RateLimited {
-                let until = now.addingTimeInterval(rate.retryAfter)
-                limitsBackoffUntil = until
-                limitsError = Self.rateLimitedMessage(until: until, now: now)
-            } else {
-                limitsError = (error as? FetchFailure)?.message ?? error.localizedDescription
-            }
-            // Rate limits and blips are routine: show the last good bars rather
-            // than blanking the dial, flagged with how old they are and with any
-            // window that has closed since marked stale. Cost still refreshes.
-            if !lastLimits.isEmpty {
-                limits = lastLimits.map { $0.hasExpired(now: now) ? $0.markedStale() : $0 }
-                extraUsage = lastExtra
-                limitsNote = lastLimitsAt.map {
-                    "Limits from \(Format.relativeAge($0, now: now)) — \(limitsError ?? "the usage API is unavailable")."
-                } ?? limitsError
-                limitsError = nil
-            } else {
-                limitsNote = limitsError
-            }
+        let hint = !ClaudeStatusLine.isInstalled ? Self.statusLineHint
+            : fed == nil ? "Connected to Claude Code; limits arrive with its next reply." : nil
+        if let asOf = limitsAsOf, now.timeIntervalSince(asOf) > 15 * 60 {
+            let age = Format.relativeAge(asOf, now: now)
+            limitsNote = fromClaudeCode
+                ? "Limits as of Claude Code's last reply, \(age)."
+                : ["Limits from \(age).", apiError, hint].compactMap { $0 }.joined(separator: " ")
+        } else if limits.isEmpty, let apiError {
+            limitsNote = [apiError, hint].compactMap { $0 }.joined(separator: " ")
         }
 
         // Same window rule as every other provider: shortest live limit wins, and
         // the tile is labelled after whatever window that turned out to be.
-        let cost = scanCost(window: UsageWindow.current(limits: limits, now: Date()))
+        let cost = scanCost(window: UsageWindow.current(limits: limits, now: now))
 
-        if limits.isEmpty, let limitsError {
-            // Degrade: local-only data if we have it, otherwise report the failure.
-            if cost == nil { return .failure(FetchFailure(message: limitsError)) }
+        if limits.isEmpty, cost == nil, let apiError {
+            // Nothing at all to show: report the failure.
+            return .failure(FetchFailure(message: apiError))
         }
-        return .success(ProviderSnapshot(account: account, plan: plan, limits: limits,
+        return .success(ProviderSnapshot(account: Self.readAccountEmail(), plan: plan, limits: limits,
                                          cost: cost, history: historyCache, fetchedAt: now,
                                          limitsNote: limitsNote,
-                                         extraUsage: extraUsage,
+                                         extraUsage: lastExtra,
                                          modelBreakdown: modelBreakdownCache,
                                          projectBreakdown: projectBreakdownCache))
+    }
+
+    static let statusLineHint = "Turn on \"Read limits from Claude Code\" in Settings to stop depending on this API."
+
+    /// Calls the usage endpoint when it is polite to, updating the cached limits.
+    /// Returns why the limits could not be refreshed, if they could not.
+    private func refreshLimitsFromAPI(creds: ClaudeCredentials, now: Date,
+                                      minInterval: TimeInterval) async -> String? {
+        if let until = limitsBackoffUntil, now < until {
+            // Calling again while Anthropic is rate-limiting us only extends the
+            // block; that is how a 429 used to stick around for a whole day.
+            return Self.rateLimitedMessage(until: until, now: now)
+        }
+        if let expires = creds.expiresAt, expires < now {
+            // Only the `claude` CLI renews this Keychain token. Someone who moved
+            // to the desktop app's Code tab can be left with a dead one.
+            return "Claude Code's saved sign-in expired \(Format.relativeAge(expires, now: now)). Run `claude` once in Terminal to renew it."
+        }
+        if let last = lastLimitsAt, !lastLimits.isEmpty,
+           now.timeIntervalSince(last) < minInterval {
+            return nil  // recent enough; polls and popover opens arrive in bursts
+        }
+        do {
+            let (bars, extra) = try await Self.fetchLimits(token: creds.accessToken)
+            guard !bars.isEmpty else { return "The usage API answered in an unexpected format." }
+            lastLimits = bars
+            lastExtra = extra
+            lastLimitsAt = now
+            limitsBackoffUntil = nil
+            consecutiveRateLimits = 0
+            saveCachedLimits(bars, extra: extra, at: now)
+            return nil
+        } catch let rate as RateLimited {
+            // Anthropic usually sends no usable Retry-After (often 0), so back off
+            // on our own: 3, 6, 12, then 15 minutes.
+            consecutiveRateLimits += 1
+            let doubling = 180 * pow(2, Double(min(consecutiveRateLimits - 1, 3)))
+            let wait = max(rate.retryAfter ?? 0, min(doubling, 900))
+            let until = now.addingTimeInterval(wait)
+            limitsBackoffUntil = until
+            return Self.rateLimitedMessage(until: until, now: now)
+        } catch {
+            return (error as? FetchFailure)?.message ?? error.localizedDescription
+        }
     }
 
     // MARK: keychain / account
@@ -139,8 +166,8 @@ final class ClaudeProvider: UsageProvider {
                 throw FetchFailure(message: "Claude Code token expired. Run any claude command to renew it.")
             }
             if http.statusCode == 429 {
-                let header = http.value(forHTTPHeaderField: "Retry-After").flatMap { Double($0) } ?? 300
-                throw RateLimited(retryAfter: min(max(header, 120), 1800))
+                let header = http.value(forHTTPHeaderField: "Retry-After").flatMap { Double($0) }
+                throw RateLimited(retryAfter: header.map { min($0, 3600) })
             }
             throw FetchFailure(message: "Limits endpoint returned \(http.statusCode)")
         }
@@ -165,12 +192,14 @@ final class ClaudeProvider: UsageProvider {
     private var lastExtra: ExtraUsage? = nil
     private var lastLimitsAt: Date? = nil
     private var limitsBackoffUntil: Date? = nil
-    /// The usage endpoint rate-limits aggressively; refresh-on-open must not hammer it.
-    private static let minLimitsInterval: TimeInterval = 60
+    private var consecutiveRateLimits = 0
+    /// The usage endpoint rate-limits third-party callers hard; community tools
+    /// that stay under it poll every 3 minutes at most.
+    private static let minLimitsInterval: TimeInterval = 180
 
     private static func rateLimitedMessage(until: Date, now: Date) -> String {
         let minutes = max(1, Int((until.timeIntervalSince(now) / 60).rounded(.up)))
-        return "Anthropic is rate-limiting usage checks; retrying in \(minutes) min"
+        return "Anthropic is rate-limiting usage checks; retrying in \(minutes) min."
     }
 
     private static var limitsCacheURL: URL? {
@@ -249,4 +278,4 @@ final class ClaudeProvider: UsageProvider {
     }
 }
 
-private struct RateLimited: Error { let retryAfter: TimeInterval }
+private struct RateLimited: Error { let retryAfter: TimeInterval? }

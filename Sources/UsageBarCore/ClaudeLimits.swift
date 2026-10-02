@@ -91,6 +91,28 @@ public enum ClaudeLimits {
         return bars
     }
 
+    /// The JSON Claude Code pipes into a status line command. After a reply it
+    /// carries `rate_limits.five_hour` / `.seven_day`, each with `used_percentage`
+    /// (0-100) and `resets_at` (epoch seconds); either window may be missing.
+    /// Same labels and kinds as `parse`, so the two sources are interchangeable.
+    public static func parseStatusLine(_ data: Data) -> [LimitBar] {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rl = obj["rate_limits"] as? [String: Any] else { return [] }
+        let windows: [(key: String, label: String, minutes: Int, kind: LimitKind)] = [
+            ("five_hour", "Session", 300, .session),
+            ("seven_day", "Weekly", 10080, .overall),
+        ]
+        var bars: [LimitBar] = []
+        for w in windows {
+            guard let entry = rl[w.key] as? [String: Any],
+                  let pct = (entry["used_percentage"] as? NSNumber)?.doubleValue else { continue }
+            let resets = (entry["resets_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
+            bars.append(LimitBar(label: w.label, percent: pct, resetsAt: resets,
+                                 windowMinutes: w.minutes, kind: w.kind))
+        }
+        return bars
+    }
+
     public static func parseExtraUsage(_ data: Data) -> ExtraUsage? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let x = obj["extra_usage"] as? [String: Any] else { return nil }

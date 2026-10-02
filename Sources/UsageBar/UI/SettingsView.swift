@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Binding var isPresented: Bool
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String? = nil
+    @State private var statusLineError: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -64,6 +65,23 @@ struct SettingsView: View {
 
                 Toggle("Notify at 80% and 95%", isOn: $store.notificationsEnabled)
                     .font(.system(size: 12))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle("Read limits from Claude Code", isOn: Binding(
+                        get: { store.claudeStatusLineInstalled },
+                        set: { statusLineError = store.setClaudeStatusLine($0) }))
+                        .font(.system(size: 12))
+                    Text("Claude Code passes its limits to its status line after every reply. This adds a small status line script (yours keeps working) so UsageBar can read them without Anthropic's usage API, which often answers 429.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let statusLineError {
+                        Text(statusLineError)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .font(.system(size: 12))

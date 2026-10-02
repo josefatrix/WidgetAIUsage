@@ -12,8 +12,10 @@ final class ClaudeProvider: UsageProvider {
     private let fileCache = JSONLCache<ClaudeFileData>(persistKey: "claude-files-v2")
 
     func fetch() async -> Result<ProviderSnapshot, FetchFailure> {
-        guard let creds = Self.readKeychainCredentials() else {
-            return .failure(FetchFailure(message: "No Claude Code credentials in Keychain"))
+        let creds: ClaudeCredentials
+        switch Self.readKeychainCredentials() {
+        case .success(let c): creds = c
+        case .failure(let f): return .failure(f)
         }
         let account = Self.readAccountEmail()
         let plan = creds.subscriptionType?.capitalized
@@ -25,22 +27,44 @@ final class ClaudeProvider: UsageProvider {
         var extraUsage: ExtraUsage? = nil
         var limitsError: String? = nil
         var limitsNote: String? = nil
-        var limitsAsOf: Date? = nil
         do {
-            (limits, extraUsage) = try await Self.fetchLimits(token: creds.accessToken)
-            lastLimits = limits
-            lastExtra = extraUsage
-            lastLimitsAt = now
-            saveCachedLimits(limits, extra: extraUsage, at: now)
+            if let until = limitsBackoffUntil, now < until {
+                // Calling again while Anthropic is rate-limiting us only extends the
+                // block; that is how a 429 used to stick around for a whole day.
+                throw FetchFailure(message: Self.rateLimitedMessage(until: until, now: now))
+            }
+            if let expires = creds.expiresAt, expires < now {
+                // Only the `claude` CLI renews this Keychain token. Someone who moved
+                // to the desktop app's Code tab can be left with a dead one.
+                throw FetchFailure(message: "Claude Code's saved sign-in expired \(Format.relativeAge(expires, now: now)). Run `claude` once in Terminal to renew it")
+            }
+            if let last = lastLimitsAt, !lastLimits.isEmpty,
+               now.timeIntervalSince(last) < Self.minLimitsInterval {
+                // Polls and popover opens arrive in bursts; one call a minute is plenty.
+                limits = lastLimits
+                extraUsage = lastExtra
+            } else {
+                (limits, extraUsage) = try await Self.fetchLimits(token: creds.accessToken)
+                lastLimits = limits
+                lastExtra = extraUsage
+                lastLimitsAt = now
+                limitsBackoffUntil = nil
+                saveCachedLimits(limits, extra: extraUsage, at: now)
+            }
         } catch {
-            limitsError = (error as? FetchFailure)?.message ?? error.localizedDescription
+            if let rate = error as? RateLimited {
+                let until = now.addingTimeInterval(rate.retryAfter)
+                limitsBackoffUntil = until
+                limitsError = Self.rateLimitedMessage(until: until, now: now)
+            } else {
+                limitsError = (error as? FetchFailure)?.message ?? error.localizedDescription
+            }
             // Rate limits and blips are routine: show the last good bars rather
             // than blanking the dial, flagged with how old they are and with any
             // window that has closed since marked stale. Cost still refreshes.
             if !lastLimits.isEmpty {
                 limits = lastLimits.map { $0.hasExpired(now: now) ? $0.markedStale() : $0 }
                 extraUsage = lastExtra
-                limitsAsOf = lastLimitsAt
                 limitsNote = lastLimitsAt.map {
                     "Limits from \(Format.relativeAge($0, now: now)) — \(limitsError ?? "the usage API is unavailable")."
                 } ?? limitsError
@@ -60,7 +84,7 @@ final class ClaudeProvider: UsageProvider {
         }
         return .success(ProviderSnapshot(account: account, plan: plan, limits: limits,
                                          cost: cost, history: historyCache, fetchedAt: now,
-                                         dataThrough: limitsAsOf, limitsNote: limitsNote,
+                                         limitsNote: limitsNote,
                                          extraUsage: extraUsage,
                                          modelBreakdown: modelBreakdownCache,
                                          projectBreakdown: projectBreakdownCache))
@@ -68,18 +92,29 @@ final class ClaudeProvider: UsageProvider {
 
     // MARK: keychain / account
 
-    static func readKeychainCredentials() -> ClaudeCredentials? {
+    static func readKeychainCredentials() -> Result<ClaudeCredentials, FetchFailure> {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         p.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = Pipe()
-        do { try p.run() } catch { return nil }
+        let exited = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in exited.signal() }
+        do { try p.run() } catch {
+            return .failure(FetchFailure(message: "Couldn't run /usr/bin/security"))
+        }
+        // A pending Keychain permission prompt blocks `security` indefinitely, and
+        // waiting on it used to wedge every later refresh. Give up and say why.
+        if exited.wait(timeout: .now() + 30) == .timedOut {
+            p.terminate()
+            return .failure(FetchFailure(message: "Waiting for Keychain permission. Choose Always Allow on the prompt."))
+        }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        return ClaudeCredentials.parse(data)
+        guard p.terminationStatus == 0, let creds = ClaudeCredentials.parse(data) else {
+            return .failure(FetchFailure(message: "No Claude Code credentials in Keychain"))
+        }
+        return .success(creds)
     }
 
     static func readAccountEmail() -> String? {
@@ -101,7 +136,11 @@ final class ClaudeProvider: UsageProvider {
         guard let http = resp as? HTTPURLResponse else { throw FetchFailure(message: "No HTTP response") }
         guard http.statusCode == 200 else {
             if http.statusCode == 401 {
-                throw FetchFailure(message: "Token expired — open Claude Code to refresh")
+                throw FetchFailure(message: "Claude Code token expired. Run any claude command to renew it.")
+            }
+            if http.statusCode == 429 {
+                let header = http.value(forHTTPHeaderField: "Retry-After").flatMap { Double($0) } ?? 300
+                throw RateLimited(retryAfter: min(max(header, 120), 1800))
             }
             throw FetchFailure(message: "Limits endpoint returned \(http.statusCode)")
         }
@@ -125,6 +164,14 @@ final class ClaudeProvider: UsageProvider {
     private var lastLimits: [LimitBar] = []
     private var lastExtra: ExtraUsage? = nil
     private var lastLimitsAt: Date? = nil
+    private var limitsBackoffUntil: Date? = nil
+    /// The usage endpoint rate-limits aggressively; refresh-on-open must not hammer it.
+    private static let minLimitsInterval: TimeInterval = 60
+
+    private static func rateLimitedMessage(until: Date, now: Date) -> String {
+        let minutes = max(1, Int((until.timeIntervalSince(now) / 60).rounded(.up)))
+        return "Anthropic is rate-limiting usage checks; retrying in \(minutes) min"
+    }
 
     private static var limitsCacheURL: URL? {
         guard let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -151,9 +198,10 @@ final class ClaudeProvider: UsageProvider {
     }
 
     private func scanCost(window: (start: Date, label: String)) -> CostSummary? {
-        let root = home.appendingPathComponent(".claude/projects")
+        // Claude Code has used both locations; duplicates across them are removed by dedupe.
+        let roots = [".claude/projects", ".config/claude/projects"].map { home.appendingPathComponent($0) }
         let cutoff = Date().addingTimeInterval(-31 * 24 * 3600)
-        let files = jsonlFiles(under: root, modifiedAfter: cutoff)
+        let files = roots.flatMap { jsonlFiles(under: $0, modifiedAfter: cutoff) }
         guard !files.isEmpty else { return nil }
 
         var events: [UsageEvent] = []
@@ -200,3 +248,5 @@ final class ClaudeProvider: UsageProvider {
                            last30DaysCostUSD: total30, sessionLabel: window.label)
     }
 }
+
+private struct RateLimited: Error { let retryAfter: TimeInterval }

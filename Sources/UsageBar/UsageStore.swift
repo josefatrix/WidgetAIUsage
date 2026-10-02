@@ -25,7 +25,10 @@ enum ProviderState {
 final class UsageStore: ObservableObject {
     @Published var states: [ProviderID: ProviderState] = [.claude: .loading, .codex: .loading,
                                                           .gemini: .loading, .chatgpt: .loading]
-    @Published var isRefreshing = false
+    /// Providers with a fetch still running. Tracked per provider so one slow or stuck
+    /// source (a Keychain prompt, a hung request) can never block the others.
+    @Published private(set) var inFlight: Set<ProviderID> = []
+    var isRefreshing: Bool { !inFlight.isEmpty }
     @Published var selected: ProviderID {
         didSet { UserDefaults.standard.set(selected.rawValue, forKey: "selectedProvider") }
     }
@@ -45,6 +48,10 @@ final class UsageStore: ObservableObject {
     private let providers: [any UsageProvider] = Providers.all()
     private var timer: Timer?
     private let notifier = Notifier()
+    private var lastRefreshStarted = Date.distantPast
+    /// Menu bar apps get App Nap'd, which can stall the polling timer for long stretches.
+    private let pollingActivity = ProcessInfo.processInfo.beginActivity(
+        options: .userInitiatedAllowingIdleSystemSleep, reason: "Polling AI usage limits")
 
     init() {
         let saved = UserDefaults.standard.string(forKey: "selectedProvider")
@@ -84,22 +91,29 @@ final class UsageStore: ObservableObject {
     }
 
     func refreshAll() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
-        await withTaskGroup(of: (ProviderID, Result<ProviderSnapshot, FetchFailure>).self) { group in
-            for provider in providers {
-                group.addTask { (provider.id, await provider.fetch()) }
+        lastRefreshStarted = Date()
+        await withTaskGroup(of: Void.self) { group in
+            for provider in providers where !inFlight.contains(provider.id) {
+                inFlight.insert(provider.id)
+                group.addTask { await self.refresh(provider) }
             }
-            for await (id, result) in group {
-                switch result {
-                case .success(let snap):
-                    states[id] = .ready(snap)
-                    notifier.check(provider: id, limits: snap.limits)
-                case .failure(let err):
-                    states[id] = .failed(err.message, last: states[id]?.snapshot)
-                }
-            }
+        }
+    }
+
+    /// Refresh-on-open. The popover can open many times a minute, so skip if a refresh just ran.
+    func refreshIfStale() {
+        guard Date().timeIntervalSince(lastRefreshStarted) > 15 else { return }
+        Task { await refreshAll() }
+    }
+
+    private func refresh(_ provider: any UsageProvider) async {
+        defer { inFlight.remove(provider.id) }
+        switch await provider.fetch() {
+        case .success(let snap):
+            states[provider.id] = .ready(snap)
+            notifier.check(provider: provider.id, limits: snap.limits)
+        case .failure(let err):
+            states[provider.id] = .failed(err.message, last: states[provider.id]?.snapshot)
         }
     }
 

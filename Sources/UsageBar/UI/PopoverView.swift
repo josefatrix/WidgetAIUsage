@@ -38,8 +38,11 @@ struct PopoverView: View {
             .frame(width: 320)
             .clipped()
         }
-        .onAppear {
-            Task { await store.refreshAll() }
+        .onAppear { store.refreshIfStale() }
+        // MenuBarExtra keeps this view alive between openings, so onAppear alone only
+        // fires the first time. The panel becoming key is the reliable "opened" signal.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            store.refreshIfStale()
         }
     }
 
@@ -71,8 +74,10 @@ struct PopoverView: View {
             // Why the dial is empty or old. A blank ring with no explanation is
             // the worst outcome — the user cannot tell "no quota exists" from
             // "we could not reach the API".
-            if let note = snap.limitsNote,
-               snap.limits.isEmpty || snap.isStale(now: now, threshold: 15 * 60) {
+            // Providers only set a note when something is wrong, so always show it.
+            // (It used to hinge on the snapshot looking stale, which hid it whenever
+            // the local logs were fresh but the limits were a day old.)
+            if let note = snap.limitsNote {
                 GlassNotice(text: note, systemImage: "exclamationmark.triangle", amber: true)
             } else if let note = store.selected.noQuotaNote, snap.limits.isEmpty {
                 Text(note)

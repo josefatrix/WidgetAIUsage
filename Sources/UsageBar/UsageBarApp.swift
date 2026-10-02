@@ -31,6 +31,7 @@ struct UsageBarApp: App {
                             cost += String(format: " · extra $%.2f/$%.2f", x.usedUSD, x.limitUSD)
                         }
                         print("\(p.id.rawValue): \(s.account ?? "?") [\(s.plan ?? "?")] — \(bars) — \(cost)")
+                        if let note = s.limitsNote { print("    note: \(note)") }
                         let now = Date()
                         for b in s.limits {
                             if let resets = b.resetsAt, let w = b.windowMinutes,

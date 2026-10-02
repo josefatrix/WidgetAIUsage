@@ -78,6 +78,8 @@ Prints both providers' live data to stdout and exits.
 
 When the limits endpoint fails, UsageBar keeps showing the last good limits and retries on its own; it backs off automatically if Anthropic rate-limits it.
 
+**Using Claude Code from the desktop app?** Only the `claude` CLI renews the sign-in UsageBar reads from the Keychain. If you've stopped using the CLI, that token eventually expires and the popover says so; run `claude` once in Terminal to renew it. Local cost data is unaffected.
+
 ## Known limitations
 
 - If the Claude access token is expired, limits show as stale until you use Claude Code again (the app never refreshes or rotates tokens on purpose).

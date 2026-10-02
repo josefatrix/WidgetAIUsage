@@ -23,6 +23,7 @@ struct UsageBarApp: App {
                             cost += String(format: " · extra $%.2f/$%.2f", x.usedUSD, x.limitUSD)
                         }
                         print("\(p.id.rawValue): \(s.account ?? "?") [\(s.plan ?? "?")] — \(bars) — \(cost)")
+                        if let w = s.warning { print("  warning: \(w)") }
                     case .failure(let e):
                         print("\(p.id.rawValue): FAILED — \(e.message)")
                     }

@@ -51,11 +51,13 @@ public struct ProviderSnapshot {
     public let fetchedAt: Date
     public let extraUsage: ExtraUsage?
     public let costUnit: CostUnit
+    /// Partial failure: the snapshot is usable but part of it (e.g. limits) is stale.
+    public let warning: String?
     public init(account: String?, plan: String?, limits: [LimitBar],
                 cost: CostSummary?, history: [DailyCost], fetchedAt: Date,
-                extraUsage: ExtraUsage? = nil, costUnit: CostUnit = .usd) {
+                extraUsage: ExtraUsage? = nil, costUnit: CostUnit = .usd, warning: String? = nil) {
         self.account = account; self.plan = plan; self.limits = limits
         self.cost = cost; self.history = history; self.fetchedAt = fetchedAt
-        self.extraUsage = extraUsage; self.costUnit = costUnit
+        self.extraUsage = extraUsage; self.costUnit = costUnit; self.warning = warning
     }
 }

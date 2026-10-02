@@ -5,21 +5,24 @@ final class ClaudeProvider: UsageProvider {
     let id = ProviderID.claude
     private let fileCache = JSONLCache<[UsageEvent]>(persistKey: "claude-events")
 
+    // Last good limits, reused when the endpoint fails or is throttled so bars never blank out.
+    private var lastLimits: [LimitBar] = []
+    private var lastExtraUsage: ExtraUsage? = nil
+    private var lastLimitsFetch: Date? = nil
+    private var limitsBackoffUntil: Date? = nil
+    /// The usage endpoint rate-limits aggressively; refresh-on-open must not hammer it.
+    private static let minLimitsInterval: TimeInterval = 60
+
     func fetch() async -> Result<ProviderSnapshot, FetchFailure> {
-        guard let creds = Self.readKeychainCredentials() else {
-            return .failure(FetchFailure(message: "No Claude Code credentials in Keychain"))
+        let creds: ClaudeCredentials
+        switch Self.readKeychainCredentials() {
+        case .success(let c): creds = c
+        case .failure(let f): return .failure(f)
         }
         let account = Self.readAccountEmail()
         let plan = creds.subscriptionType?.capitalized
 
-        var limits: [LimitBar] = []
-        var extraUsage: ExtraUsage? = nil
-        var limitsError: String? = nil
-        do {
-            (limits, extraUsage) = try await Self.fetchLimits(token: creds.accessToken)
-        } catch {
-            limitsError = (error as? FetchFailure)?.message ?? error.localizedDescription
-        }
+        let (limits, extraUsage, limitsError) = await currentLimits(token: creds.accessToken)
 
         let sessionReset = limits.first { $0.label == "Session" }?.resetsAt
         let cost = scanCost(sessionResetsAt: sessionReset)
@@ -31,23 +34,69 @@ final class ClaudeProvider: UsageProvider {
         let history = historyCache
         return .success(ProviderSnapshot(account: account, plan: plan, limits: limits,
                                          cost: cost, history: history, fetchedAt: Date(),
-                                         extraUsage: extraUsage))
+                                         extraUsage: extraUsage, warning: limitsError))
+    }
+
+    /// Fresh limits when possible, otherwise the last good ones plus a message explaining why.
+    private func currentLimits(token: String) async -> ([LimitBar], ExtraUsage?, String?) {
+        let now = Date()
+        if let until = limitsBackoffUntil, now < until {
+            return (lastLimits, lastExtraUsage, Self.rateLimitedMessage(until: until, now: now))
+        }
+        if let last = lastLimitsFetch, !lastLimits.isEmpty,
+           now.timeIntervalSince(last) < Self.minLimitsInterval {
+            return (lastLimits, lastExtraUsage, nil)
+        }
+        do {
+            let (limits, extra) = try await Self.fetchLimits(token: token)
+            guard !limits.isEmpty else {
+                return (lastLimits, lastExtraUsage, "Limits response had an unexpected format")
+            }
+            lastLimits = limits
+            lastExtraUsage = extra
+            lastLimitsFetch = now
+            limitsBackoffUntil = nil
+            return (limits, extra, nil)
+        } catch let e as RateLimited {
+            let until = now.addingTimeInterval(e.retryAfter)
+            limitsBackoffUntil = until
+            return (lastLimits, lastExtraUsage, Self.rateLimitedMessage(until: until, now: now))
+        } catch {
+            let message = (error as? FetchFailure)?.message ?? error.localizedDescription
+            return (lastLimits, lastExtraUsage, message)
+        }
+    }
+
+    private static func rateLimitedMessage(until: Date, now: Date) -> String {
+        let minutes = max(1, Int((until.timeIntervalSince(now) / 60).rounded(.up)))
+        return "Anthropic is rate-limiting usage checks. Retrying in \(minutes) min."
     }
 
     // MARK: keychain / account
 
-    static func readKeychainCredentials() -> ClaudeCredentials? {
+    static func readKeychainCredentials() -> Result<ClaudeCredentials, FetchFailure> {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         p.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = Pipe()
-        do { try p.run() } catch { return nil }
+        let exited = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in exited.signal() }
+        do { try p.run() } catch {
+            return .failure(FetchFailure(message: "Couldn't run /usr/bin/security"))
+        }
+        // A pending Keychain permission prompt blocks `security` indefinitely. Waiting on it
+        // used to wedge the whole refresh loop, so give up and report it instead.
+        if exited.wait(timeout: .now() + 30) == .timedOut {
+            p.terminate()
+            return .failure(FetchFailure(message: "Waiting for Keychain permission. Choose Always Allow on the prompt."))
+        }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        return ClaudeCredentials.parse(data)
+        guard p.terminationStatus == 0, let creds = ClaudeCredentials.parse(data) else {
+            return .failure(FetchFailure(message: "No Claude Code credentials in Keychain"))
+        }
+        return .success(creds)
     }
 
     static func readAccountEmail() -> String? {
@@ -69,7 +118,11 @@ final class ClaudeProvider: UsageProvider {
         guard let http = resp as? HTTPURLResponse else { throw FetchFailure(message: "No HTTP response") }
         guard http.statusCode == 200 else {
             if http.statusCode == 401 {
-                throw FetchFailure(message: "Token expired — open Claude Code to refresh")
+                throw FetchFailure(message: "Claude Code token expired. Run any claude command to renew it.")
+            }
+            if http.statusCode == 429 {
+                let header = http.value(forHTTPHeaderField: "Retry-After").flatMap { Double($0) } ?? 300
+                throw RateLimited(retryAfter: min(max(header, 60), 1800))
             }
             throw FetchFailure(message: "Limits endpoint returned \(http.statusCode)")
         }
@@ -81,9 +134,10 @@ final class ClaudeProvider: UsageProvider {
     private var historyCache: [DailyCost] = []
 
     private func scanCost(sessionResetsAt: Date?) -> CostSummary? {
-        let root = home.appendingPathComponent(".claude/projects")
+        // Claude Code has used both locations; duplicates across them are removed by dedupe.
+        let roots = [".claude/projects", ".config/claude/projects"].map { home.appendingPathComponent($0) }
         let cutoff = Date().addingTimeInterval(-31 * 24 * 3600)
-        let files = jsonlFiles(under: root, modifiedAfter: cutoff)
+        let files = roots.flatMap { jsonlFiles(under: $0, modifiedAfter: cutoff) }
         guard !files.isEmpty else { return nil }
 
         var events: [UsageEvent] = []
@@ -107,3 +161,5 @@ final class ClaudeProvider: UsageProvider {
                            last30DaysCostUSD: total30)
     }
 }
+
+private struct RateLimited: Error { let retryAfter: TimeInterval }

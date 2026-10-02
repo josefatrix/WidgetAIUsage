@@ -26,8 +26,11 @@ struct PopoverView: View {
             .padding(14)
             .frame(width: 320)
         }
-        .onAppear {
-            Task { await store.refreshAll() }
+        .onAppear { store.refreshIfStale() }
+        // MenuBarExtra keeps this view alive between openings, so onAppear alone only fires
+        // the first time. The panel becoming key is the reliable "popover opened" signal.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            store.refreshIfStale()
         }
     }
 
@@ -37,11 +40,13 @@ struct PopoverView: View {
 
         header(state, now: now)
 
-        if let error = state.errorMessage {
+        if let error = state.errorMessage ?? state.snapshot?.warning {
             Label(error, systemImage: "exclamationmark.triangle")
                 .font(.system(size: 11))
                 .foregroundStyle(.orange)
-                .lineLimit(2)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(error)
         }
 
         if let snap = state.snapshot {

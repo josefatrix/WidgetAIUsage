@@ -68,6 +68,16 @@ Sources/
 
 Prints both providers' live data to stdout and exits.
 
+## Troubleshooting
+
+**Claude usage isn't updating.** Open the popover: if something is wrong, an orange message under the header says why (Keychain permission pending, expired token, Anthropic rate-limiting the usage endpoint). For the full picture run:
+
+```sh
+/Applications/UsageBar.app/Contents/MacOS/UsageBar --check
+```
+
+When the limits endpoint fails, UsageBar keeps showing the last good limits and retries on its own; it backs off automatically if Anthropic rate-limits it.
+
 ## Known limitations
 
 - If the Claude access token is expired, limits show as stale until you use Claude Code again (the app never refreshes or rotates tokens on purpose).
